@@ -1,0 +1,6 @@
+{
+  "name": "AgCite 90072 Jetting Simulator",
+  "description": "A predictive modeling tool for simulating conductive ink flow through a nozzle based on experimental voltage, frequency, and amplitude data.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
