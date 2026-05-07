@@ -249,7 +249,7 @@ export default function App() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight">
-            EHD Printing <span className="text-slate-400 font-normal">Simulator</span>
+            AgCite 90072 <span className="text-slate-400 font-normal">Nanoparticle Print Simulator</span>
           </h1>
         </div>
         <div className="flex items-center space-x-6 text-sm font-medium">
