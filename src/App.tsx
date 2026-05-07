@@ -31,54 +31,55 @@ interface Particle {
 }
 
 // --- Predictive Model Data ---
-// Extracted from user data: V, f, a -> Droplet Size (microns)
-const EXPERIMENTAL_DATA = [
-  { a: 60, f: 1000, v: 2.79, d: 2797 },
-  { a: 70, f: 1000, v: 2.79, d: 1352 },
-  { a: 40, f: 100, v: 3.00, d: 1412 },
-  { a: 40, f: 1000, v: 2.79, d: 2720 },
-  { a: 80, f: 3000, v: 2.79, d: 3000 },
-  { a: 20, f: 1000, v: 2.79, d: 1100 },
+// Extracted from user data: Sample #, f, V, a
+const SAMPLES = [
+  { id: 1, f: 1000, v: 2.79, a: 60 },
+  { id: 2, f: 1000, v: 2.79, a: 70 },
+  { id: 3, f: 1500, v: 2.79, a: 70 },
+  { id: 4, f: 2000, v: 2.79, a: 70 },
+  { id: 9, f: 1000, v: 2.79, a: 20 },
+  { id: 10, f: 2000, v: 2.79, a: 20 },
+  { id: 13, f: 2000, v: 2.89, a: 40 },
+  { id: 16, f: 500,  v: 2.89, a: 40 },
+  { id: 17, f: 100,  v: 3.00, a: 40 },
 ];
 
 /**
- * A simple multivariate interpolation predictive model.
+ * Recalibrated EHD model for AgCite 90072.
+ * Target: Sample 9 (V=2.79, A=20, f=1kHz) -> d ~ 6um (Spacing 20um, 2 dots fit in gap)
+ * Target: Sample 13 (V=2.89, A=40, f=2kHz) -> d ~ 10.5um (Spacing 10um, Line forms)
  */
 function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
-  // EHD Model calibrated for micro-scale dot separation:
-  // Baseline diameter target: ~5 microns (5000nm)
-  // Voltage (V) and Amplitude (A) determine the E-field strength.
+  const vNorm = voltage / 2.79;
+  const aScale = 1 + (amplitude / 65);
   
-  const fieldFactor = (voltage / 2.79) * (1 + (amplitude / 150)); 
-  const intrinsicSize = 4.2 * fieldFactor; // Base diameter in microns
+  // Micro-scale diameters (microns)
+  const baseDiameter = 5.2; 
+  let diameter = baseDiameter * Math.pow(vNorm, 5) * aScale;
   
-  // Frequency Refill Roll-off
-  const fThreshold = 2500;
-  let freqDamping = 0;
-  if (frequency > fThreshold) {
-    freqDamping = (frequency - fThreshold) * 0.0005;
+  // Frequency roll-off (refill bottleneck) affecting volume slightly
+  if (frequency > 2400) {
+    diameter -= (frequency - 2400) * 0.0012;
   }
-  
-  let predicted = intrinsicSize - freqDamping;
-  
-  // Clamp to realistic micro-EHD results (typically 2um to 15um for AgCite)
-  return Math.min(Math.max(predicted, 2.0), 18.0);
+
+  return Math.min(Math.max(diameter, 1.5), 20.0);
 }
 
 // --- Components ---
 
 export default function App() {
   const [params, setParams] = useState<SimulationParams>({
-    voltage: 2.79,
-    frequency: 1000,
-    amplitude: 20,
+    voltage: 2.89,
+    frequency: 2000,
+    amplitude: 40,
     speed: 20
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMoving, setIsMoving] = useState(false); // New: Tracks when Thorlabs motion starts
+  const [sampleProgress, setSampleProgress] = useState(0); // 0-100mm
   const [particles, setParticles] = useState<Particle[]>([]);
   const microscopeCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastEmitTime = useRef<number>(0);
@@ -86,6 +87,12 @@ export default function App() {
   const requestRef = useRef<number | null>(null);
 
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
+
+  // Constants
+  const POOL_TIME = 850;
+  const PRINT_SPEED_MM_S = 20;
+  const SAMPLE_LIMIT_MM = 100; // 10cm
+  const PRINT_DURATION_MS = (SAMPLE_LIMIT_MM / PRINT_SPEED_MM_S) * 1000;
 
   // Simulation Loop
   useEffect(() => {
@@ -104,31 +111,44 @@ export default function App() {
       // 0-850ms: Energized & Stationary (Pooling)
       // >850ms: Thorlabs Motion Starts (Linear Sweep)
       const elapsed = now - startTime.current;
-      const motionActive = elapsed > 850;
+
+      // Stop if sample finished
+      if (elapsed > POOL_TIME + PRINT_DURATION_MS) {
+        setIsPlaying(false);
+        setIsMoving(false);
+        return;
+      }
+
+      const motionActive = elapsed > POOL_TIME;
       if (motionActive !== isMoving) setIsMoving(motionActive);
 
       // 1. Move existing particles
       // Visual Scaling for kHz frequencies (Visual Time Dilation)
       const VISUAL_TIME_SCALE = 0.04; 
-      const visualSpeed = 45; 
+      const visualSpeed = 55; 
       const moveAmount = motionActive ? (visualSpeed * deltaTime * VISUAL_TIME_SCALE) : 0;
+
+      // Update physical progress
+      if (motionActive) {
+        setSampleProgress(prev => Math.min(prev + (PRINT_SPEED_MM_S * deltaTime / 1000), SAMPLE_LIMIT_MM));
+      }
 
       const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
       const timeSinceLastEmit = now - lastEmitTime.current;
 
       setParticles(prev => {
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 115);
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 118);
 
         if (timeSinceLastEmit >= emitInterval) {
           // Instability increases with both Voltage and Freq
           const instability = (params.frequency / 3500) * (params.voltage / 2.5);
-          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 3 : 0;
+          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 4 : 0;
           
           updated.push({
             id: Math.random(),
             x: 10,
             y: 50 + jitter,
-            size: predictedSize * 2.2, 
+            size: predictedSize * 2.4, 
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -155,8 +175,20 @@ export default function App() {
     setIsPlaying(false);
     setIsMoving(false);
     setParticles([]);
+    setSampleProgress(0);
     lastEmitTime.current = 0;
     startTime.current = 0;
+  };
+
+  // Set from library
+  const loadSample = (s: typeof SAMPLES[0]) => {
+    handleReset();
+    setParams({
+      ...params,
+      frequency: s.f,
+      voltage: s.v,
+      amplitude: s.a
+    });
   };
 
   // Render Microscope View
@@ -179,11 +211,11 @@ export default function App() {
     // Centered visualization of a single drop
     const centerX = 150;
     const centerY = 150;
-    const radius = predictedSize * 5; // Zoomed in purely for visual diameter check
+    const radius = predictedSize * 6; // Zoomed in purely for visual diameter check
 
     const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
     gradient.addColorStop(0, '#f8fafc');
-    gradient.addColorStop(0.6, '#60a5fa');
+    gradient.addColorStop(0.6, '#3b82f6');
     gradient.addColorStop(1, '#1e293b');
 
     ctx.beginPath();
@@ -241,7 +273,7 @@ export default function App() {
               {/* Voltage Slider */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-medium text-slate-300">Voltage</label>
+                  <label className="text-sm font-medium text-slate-300">Voltage (V)</label>
                   <span className="text-blue-400 font-mono text-sm font-bold">{params.voltage.toFixed(2)}V</span>
                 </div>
                 <input 
@@ -256,8 +288,8 @@ export default function App() {
               {/* Frequency Slider */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-medium text-slate-300">Frequency</label>
-                  <span className="text-blue-400 font-mono text-sm font-bold">{(params.frequency / 1000).toFixed(2)}kHz</span>
+                  <label className="text-sm font-medium text-slate-300">Frequency (f)</label>
+                  <span className="text-blue-400 font-mono text-sm font-bold font-mono">{(params.frequency / 1000).toFixed(2)}kHz</span>
                 </div>
                 <input 
                   type="range" 
@@ -276,7 +308,7 @@ export default function App() {
                 </div>
                 <input 
                   type="range" 
-                  min="10" max="90" step="1"
+                  min="10" max="95" step="1"
                   value={params.amplitude}
                   onChange={(e) => setParams({...params, amplitude: parseInt(e.target.value)})}
                   className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
@@ -285,31 +317,55 @@ export default function App() {
             </div>
           </div>
 
+          <div>
+             <h2 className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-4">Sample Library</h2>
+             <div className="grid grid-cols-4 gap-2">
+                {SAMPLES.map(s => (
+                  <button 
+                    key={s.id}
+                    onClick={() => loadSample(s)}
+                    className="p-2 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono hover:border-blue-500 transition-colors text-slate-400 hover:text-blue-400"
+                  >
+                    #{s.id}
+                  </button>
+                ))}
+             </div>
+          </div>
+
           <div className="flex-1">
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">EHD Infrastructure</h2>
             <div className="bg-slate-950/50 rounded-lg p-5 space-y-4 border border-slate-800/50">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Syringe Supply</span>
-                <span className="text-xs font-mono font-bold text-slate-200">LiteTouch ACTIVE</span>
+                <span className="text-xs text-slate-500">Stage Position</span>
+                <span className="text-xs font-mono font-bold text-slate-200">{sampleProgress.toFixed(1)}mm / 100</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Field Coupling</span>
-                <span className="text-xs font-mono font-bold text-blue-500/80">Alligator Clip</span>
+                <span className="text-xs text-slate-500">LiteTouch Supply</span>
+                <span className="text-xs font-mono font-bold text-blue-500/80">PRESSURE_LOCK</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Nozzle Tip</span>
-                <span className="text-xs font-mono font-bold text-slate-200">Meniscus Focused</span>
+                <span className="text-xs text-slate-500">Thorlabs Control</span>
+                <span className="text-xs font-mono font-bold text-slate-200">LTS-150 ACTIVATED</span>
               </div>
             </div>
           </div>
 
-          <button 
-            onClick={() => isPlaying ? handleReset() : setIsPlaying(true)}
-            className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-             {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
-             {isPlaying ? "RESET FIELD" : "ENERGIZE NOZZLE"}
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleReset}
+              className="px-4 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-bold text-xs tracking-widest transition-all active:scale-[0.98] border border-slate-700"
+            >
+               <RotateCcw className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setIsPlaying(true)}
+              disabled={isPlaying}
+              className={`flex-1 py-4 ${isPlaying ? 'bg-blue-900/50 text-blue-500' : 'bg-blue-600 hover:bg-blue-500 text-white'} rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2`}
+            >
+               {isPlaying ? <Activity className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+               {isPlaying ? "PRINTING SAMPLE..." : "START 10cm PRINT"}
+            </button>
+          </div>
         </aside>
 
         {/* Simulation Viewport */}
@@ -357,8 +413,8 @@ export default function App() {
               <p className="text-2xl font-mono text-blue-400 font-bold">2.18<span className="text-xs text-slate-600 ml-1">Re</span></p>
             </div>
             <div className="bg-slate-900/80 backdrop-blur-xl p-4 border border-slate-700 rounded-xl shadow-2xl">
-              <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Trace Accuracy</p>
-              <p className="text-2xl font-mono text-emerald-400 font-bold">99.4<span className="text-xs text-slate-600 ml-1">%</span></p>
+               <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Stage Status</p>
+               <p className="text-2xl font-mono text-emerald-400 font-bold">{isMoving ? "SWEEPING" : "STATIONARY"}</p>
             </div>
           </div>
         </section>
