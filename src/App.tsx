@@ -99,9 +99,9 @@ export default function App() {
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.04; 
-  const VISUAL_SPEED = 3.2;        // Units per ms (Relative to 100% width)
-  const VISUAL_PARTICLE_SCALE = 0.22; // Ratio of Micron to Screen %
+  const VISUAL_TIME_SCALE = 0.05; 
+  const VISUAL_SPEED = 22.0;        // Exaggerated speed for clearer separation
+  const VISUAL_PARTICLE_SCALE = 0.55; // Balanced to allow merge at 2kHz but gaps at 1kHz
 
   // Simulation Loop
   useEffect(() => {
