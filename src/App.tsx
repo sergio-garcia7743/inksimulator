@@ -47,26 +47,30 @@ const EXPERIMENTAL_DATA = [
 function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
-  // Base model derived from observed trends:
-  // - Higher Amplitude generally increases droplet volume
-  // - Higher Voltage increases pressure and volume
-  // - Frequency affects jetting stability and volume (refill time bottleneck)
+  // EHD Empirical Model Logic:
+  // 1. Electric Field Strength (E) is driven by Voltage (V) and Waveform Amplitude (A).
+  //    Higher E deforms the meniscus more aggressively, increasing volume.
+  const electricFieldStrength = (voltage * 0.7) + (amplitude / 100 * 0.3);
+  const vScale = (electricFieldStrength - 2.0) * 2400; 
   
-  const vScale = (voltage - 2.7) * 2200; 
-  const aScale = (amplitude / 100) * 1600;
-  
-  // High Frequency Dampening (Simulating Refill Time Bottleneck)
-  // Beyond ~3kHz, volume typically begins to roll off in piezoelectric DOD heads
-  const fThreshold = 3000;
-  let fEffect = 0;
-  if (frequency > fThreshold) {
-    fEffect = (frequency - fThreshold) * 0.15; // Sharper drop-off after threshold
+  // 2. Frequency (f) Regulation:
+  //    At high f, the meniscus recovery time (refill from LiteTouch syringe) 
+  //    becomes the bottleneck. If f is too high, the meniscus cannot reform 
+  //    fully, leading to volume divergence or ejection failure.
+  const meniscusRecoveryThreshold = 2800; // Hz
+  let recoveryDissipation = 0;
+  if (frequency > meniscusRecoveryThreshold) {
+    recoveryDissipation = Math.pow((frequency - meniscusRecoveryThreshold) / 100, 1.8);
   }
   
-  const baseSize = 800; // Minimum viable droplet
-  let predicted = baseSize + vScale + aScale - fEffect - (Math.log10(frequency) * 50);
+  // 3. Spacing Interaction: 
+  //    Frequency determines pulsing rate against the 20mm/s supply.
+  const spacingEffect = Math.log2(frequency) * 40;
   
-  return Math.min(Math.max(predicted, 500), 4000);
+  const baseSize = 900; // Minimum EHD threshold
+  let predicted = baseSize + vScale - recoveryDissipation - spacingEffect;
+  
+  return Math.min(Math.max(predicted, 400), 4500);
 }
 
 // --- Components ---
@@ -201,13 +205,13 @@ export default function App() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight">
-            AgCite 90072 <span className="text-slate-400 font-normal">Flow Dynamics v2.4.0</span>
+            AgCite 90072 <span className="text-slate-400 font-normal">EHD Ejection Lab v3.0.1</span>
           </h1>
         </div>
         <div className="flex items-center space-x-6 text-sm font-medium">
           <div className="flex items-center space-x-2 bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50">
             <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span>
-            <span className="text-slate-300 text-xs tracking-widest">{isPlaying ? 'ENGINE ACTIVE' : 'SYSTEM STANDBY'}</span>
+            <span className="text-slate-300 text-xs tracking-widest">{isPlaying ? 'FIELD ENERGIZED' : 'FIELD DISARMED'}</span>
           </div>
           <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-md border border-slate-700 transition-colors text-xs font-bold text-slate-300 tracking-wide uppercase">
             Export Data
@@ -272,19 +276,19 @@ export default function App() {
           </div>
 
           <div className="flex-1">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Operational Constants</h2>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">EHD Infrastructure</h2>
             <div className="bg-slate-950/50 rounded-lg p-5 space-y-4 border border-slate-800/50">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Print Speed</span>
-                <span className="text-xs font-mono font-bold text-slate-200">20.0 mm/s</span>
+                <span className="text-xs text-slate-500">Syringe Supply</span>
+                <span className="text-xs font-mono font-bold text-slate-200">LiteTouch ACTIVE</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Material</span>
-                <span className="text-xs font-mono font-bold text-blue-500/80">AgCite 90072</span>
+                <span className="text-xs text-slate-500">Field Coupling</span>
+                <span className="text-xs font-mono font-bold text-blue-500/80">Alligator Clip</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-slate-500">Nozzle Tip</span>
-                <span className="text-xs font-mono font-bold text-slate-200">50µm Ruby</span>
+                <span className="text-xs font-mono font-bold text-slate-200">Meniscus Focused</span>
               </div>
             </div>
           </div>
@@ -293,8 +297,8 @@ export default function App() {
             onClick={() => isPlaying ? handleReset() : setIsPlaying(true)}
             className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
           >
-             {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-             {isPlaying ? "RESET DYNAMICS" : "INITIATE JETTING"}
+             {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+             {isPlaying ? "RESET FIELD" : "ENERGIZE NOZZLE"}
           </button>
         </aside>
 
@@ -400,13 +404,13 @@ export default function App() {
 
             {/* Insights Module */}
             <div className="p-5 border-l-2 border-blue-500 bg-blue-500/5 rounded-r-xl">
-              <h3 className="text-[11px] font-black text-blue-400 mb-2 uppercase tracking-wide">Model Insights</h3>
+              <h3 className="text-[11px] font-black text-blue-400 mb-2 uppercase tracking-wide">EHD Predictive Insights</h3>
               <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
                 {params.frequency > 4000 
-                  ? "CRITICAL: Frequency exceeds nozzle refill threshold. Meniscus damping is insufficient, leading to significant volume drop-off and potential satellite formation." 
-                  : params.frequency > 2500
-                  ? "CAUTION: Harmonic resonance detected. Droplet volume starting to diverge from linear scaling due to fluid chamber refill constraints."
-                  : "STABLE: Flow dynamics are laminar. Droplet pitch remains consistent with the 20mm/s print velocity."}
+                  ? "CRITICAL: Pulse frequency exceeds LiteTouch syringe refill rate. Meniscus recovery is incomplete, leading to significant volume drop-off and field-ejection instability." 
+                  : params.frequency > 2800
+                  ? "CAUTION: Meniscus recovery time is narrowing. High-frequency pulses are deforming the ink before the meniscus fully stabilizes from previous ejection."
+                  : "STABLE: Equilibrium reached between electric field strength and meniscus reformation. AgCite 90072 ejection remains laminar and consistent."}
               </p>
             </div>
           </div>
