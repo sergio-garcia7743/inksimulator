@@ -253,7 +253,7 @@ export default function App() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight">
-            EHD Printing <span className="text-slate-400 font-normal">Simulator</span>
+            AgCite 90072 <span className="text-slate-400 font-normal">Print Simulator</span>
           </h1>
         </div>
         <div className="flex items-center space-x-6 text-sm font-medium">
@@ -425,7 +425,7 @@ export default function App() {
 
         {/* Right Analytics Panel */}
         <aside className="w-full lg:w-80 shrink-0 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-6 space-y-8 lg:overflow-y-auto order-3">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">EHD Analytics</h2>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">AgCite 90072 Analytics</h2>
           
           <div className="space-y-10">
             {/* Main KPI */}
