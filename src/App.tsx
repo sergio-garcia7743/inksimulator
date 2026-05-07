@@ -52,19 +52,19 @@ const SAMPLES = [
 function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
-  const vNorm = voltage / 2.79;
-  const aScale = 1 + (amplitude / 65);
+  // Calibrated AgCite 90072 EHD Empirical Model
+  const vFactor = Math.pow(voltage / 2.79, 5.0); 
+  const aFactor = 1 + (amplitude / 110);
   
-  // Micro-scale diameters (microns)
-  const baseDiameter = 5.2; 
-  let diameter = baseDiameter * Math.pow(vNorm, 5) * aScale;
+  // Base diameter in microns
+  let diameter = 6.8 * vFactor * aFactor;
   
-  // Frequency roll-off (refill bottleneck) affecting volume slightly
-  if (frequency > 2400) {
-    diameter -= (frequency - 2400) * 0.0012;
+  // Frequency roll-off due to meniscus refill time
+  if (frequency > 2500) {
+    diameter -= (frequency - 2500) * 0.0015;
   }
 
-  return Math.min(Math.max(diameter, 1.5), 20.0);
+  return Math.min(Math.max(diameter, 1.5), 25.0);
 }
 
 // --- Components ---
@@ -88,11 +88,16 @@ export default function App() {
 
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
 
-  // Constants
+  // Constants for Physical/Visual Calibration
   const POOL_TIME = 850;
   const PRINT_SPEED_MM_S = 20;
-  const SAMPLE_LIMIT_MM = 100; // 10cm
+  const SAMPLE_LIMIT_MM = 100; // 10cm Physical limit
   const PRINT_DURATION_MS = (SAMPLE_LIMIT_MM / PRINT_SPEED_MM_S) * 1000;
+  
+  // Spacing & Sprawl Calibration
+  const VISUAL_TIME_SCALE = 0.05; 
+  const VISUAL_SPEED = 7.2;        // Calibrated for Sample 9 (1kHz) gaps
+  const VISUAL_PARTICLE_SCALE = 0.38; // Calibrated for Sample 13 line merging
 
   // Simulation Loop
   useEffect(() => {
@@ -106,13 +111,9 @@ export default function App() {
 
       const deltaTime = now - lastFrameTime;
       lastFrameTime = now;
-
-      // Sequential Logic: 
-      // 0-850ms: Energized & Stationary (Pooling)
-      // >850ms: Thorlabs Motion Starts (Linear Sweep)
       const elapsed = now - startTime.current;
 
-      // Stop if sample finished
+      // Completion Check (10cm Print Limit)
       if (elapsed > POOL_TIME + PRINT_DURATION_MS) {
         setIsPlaying(false);
         setIsMoving(false);
@@ -122,33 +123,27 @@ export default function App() {
       const motionActive = elapsed > POOL_TIME;
       if (motionActive !== isMoving) setIsMoving(motionActive);
 
-      // 1. Move existing particles
-      // Visual Scaling for kHz frequencies (Visual Time Dilation)
-      const VISUAL_TIME_SCALE = 0.04; 
-      const visualSpeed = 55; 
-      const moveAmount = motionActive ? (visualSpeed * deltaTime * VISUAL_TIME_SCALE) : 0;
+      // Move existing substrate
+      const moveAmount = motionActive ? (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE) : 0;
 
-      // Update physical progress
       if (motionActive) {
         setSampleProgress(prev => Math.min(prev + (PRINT_SPEED_MM_S * deltaTime / 1000), SAMPLE_LIMIT_MM));
       }
 
       const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
-      const timeSinceLastEmit = now - lastEmitTime.current;
-
+      
       setParticles(prev => {
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 118);
-
-        if (timeSinceLastEmit >= emitInterval) {
-          // Instability increases with both Voltage and Freq
-          const instability = (params.frequency / 3500) * (params.voltage / 2.5);
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 125);
+        
+        if (now - lastEmitTime.current >= emitInterval) {
+          const instability = (params.frequency / 3500) * (params.voltage / 2.7);
           const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 4 : 0;
           
           updated.push({
             id: Math.random(),
             x: 10,
             y: 50 + jitter,
-            size: predictedSize * 2.4, 
+            size: predictedSize * VISUAL_PARTICLE_SCALE * 10,
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -166,9 +161,9 @@ export default function App() {
     }
 
     return () => {
-        if (requestRef.current) cancelAnimationFrame(requestRef.current);
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [params.frequency, isPlaying, predictedSize]);
+  }, [isPlaying, params, predictedSize, isMoving, PRINT_DURATION_MS]);
 
   // Reset function
   const handleReset = () => {
@@ -472,11 +467,13 @@ export default function App() {
             <div className="p-5 border-l-2 border-blue-500 bg-blue-500/5 rounded-r-xl">
               <h3 className="text-[11px] font-black text-blue-400 mb-2 uppercase tracking-wide">EHD Predictive Insights</h3>
               <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                {params.frequency > 4000 
+                {params.frequency >= 2000 && params.voltage >= 2.85 
+                  ? "SATURATION: High field strength and frequency coupling has reached the droplet overlap threshold. Individual ejections are merging on the substrate, creating a stable 'Linea Continua' trace."
+                  : params.frequency > 4000 
                   ? "CRITICAL: Pulse frequency exceeds LiteTouch syringe refill rate. Meniscus recovery is incomplete, leading to significant volume drop-off and field-ejection instability." 
                   : params.frequency > 2800
                   ? "CAUTION: Meniscus recovery time is narrowing. High-frequency pulses are deforming the ink before the meniscus fully stabilizes from previous ejection."
-                  : "STABLE: Equilibrium reached between electric field strength and meniscus reformation. AgCite 90072 ejection remains laminar and consistent."}
+                  : "STABLE: Equilibrium reached between electric field strength and meniscus reformation. AgCite 90072 ejection remains laminar and consistent (Isolated Droplets)."}
               </p>
             </div>
           </div>
