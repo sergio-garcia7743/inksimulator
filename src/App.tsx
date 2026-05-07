@@ -38,14 +38,14 @@ const SAMPLES = [
   { id: 3, f: 1500, v: 2.79, a: 70, blob: false, desc: "Medium droplets, medium spacing" },
   { id: 4, f: 2000, v: 2.79, a: 70, blob: false, desc: "Large droplets, wide spacing" },
   { id: 5, f: 2500, v: 2.79, a: 60, blob: false, desc: "Small-to-medium droplets, tight spacing" },
-  { id: 6, f: 3000, v: 2.82, a: 80, blob: false, desc: "Weak connected trace (smear effect)" },
+  { id: 6, f: 3000, v: 2.82, a: 80, blob: false, continuous: true, desc: "Weak connected trace (smear effect)" },
   { id: 7, f: 3500, v: 2.79, a: 70, blob: false, desc: "Small-to-medium droplets, tight and regular" },
   { id: 8, f: 1200, v: 2.85, a: 90, blob: true, puddle: true, desc: "XL starting puddle, then medium droplets" },
   { id: 9, f: 1000, v: 2.79, a: 20, blob: false, desc: "Large droplets, very wide spacing" },
   { id: 10, f: 2000, v: 2.79, a: 20, blob: false, desc: "Medium-to-large droplets, wide spacing" },
   { id: 11, f: 1500, v: 2.89, a: 30, blob: true, desc: "Large starting blob, then large droplets" },
   { id: 12, f: 1800, v: 2.87, a: 50, blob: false, desc: "Medium-to-large droplets, medium spacing" },
-  { id: 13, f: 2000, v: 2.89, a: 40, blob: true, puddle: true, desc: "XL starting puddle, then connected line" },
+  { id: 13, f: 2000, v: 2.89, a: 40, blob: true, puddle: true, continuous: true, desc: "XL starting puddle, then connected line" },
   { id: 14, f: 2500, v: 2.85, a: 60, blob: false, desc: "Medium droplets, tight spacing" },
   { id: 15, f: 3000, v: 2.82, a: 70, blob: true, puddle: true, desc: "XL starting puddle, then small droplets" },
   { id: 16, f: 500,  v: 2.89, a: 40, blob: true, desc: "Large starting blob, then small-to-medium" },
@@ -100,8 +100,8 @@ export default function App() {
   // Spacing & Sprawl Calibration
   // VISUAL_SPEED tuned so 2000Hz is separated, but Sample 13's boost forces connection
   const VISUAL_TIME_SCALE = 0.04; 
-  const VISUAL_SPEED = 22.0;        
-  const VISUAL_PARTICLE_SCALE = 0.65; 
+  const VISUAL_SPEED = 14.0;        
+  const VISUAL_PARTICLE_SCALE = 0.7; 
 
   // Simulation Loop
   useEffect(() => {
@@ -137,11 +137,11 @@ export default function App() {
           for (let i = 0; i < numToEmit; i++) {
             // Logic for STARTING BLOBS / PUDDLES
             let transientScale = 1.0;
-            if (activeSample?.blob && elapsed < 1200) transientScale = 1.6;
-            if (activeSample?.puddle && elapsed < 2000) transientScale = 2.2;
+            if (activeSample?.blob && elapsed < 1200) transientScale = 1.7;
+            if (activeSample?.puddle && elapsed < 2000) transientScale = 2.4;
             
-            // Sample 13 is "long continuous line" - we force a slight scale boost to ensure connection
-            if (activeSample?.id === 13) transientScale *= 1.25;
+            // Sample 13 is "long continuous line" - we force a significant scale boost to ensure connection
+            if (activeSample?.continuous) transientScale *= 1.4;
 
             updated.push({
               id: Math.random() + i,
