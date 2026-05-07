@@ -96,9 +96,9 @@ export default function App() {
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.4; 
-  const VISUAL_SPEED = 0.35;        // Balanced speed for clear separation and fast feel
-  const VISUAL_PARTICLE_SCALE = 0.4; 
+  const VISUAL_TIME_SCALE = 0.015; 
+  const VISUAL_SPEED = 12.0;        // High speed relative to time-scale = distinct separation
+  const VISUAL_PARTICLE_SCALE = 0.45; 
 
   // Simulation Loop
   useEffect(() => {
@@ -160,11 +160,9 @@ export default function App() {
   // Reset function
   const handleReset = () => {
     setIsPlaying(false);
-    setIsMoving(false);
     setParticles([]);
     setSampleProgress(0);
     lastEmitTime.current = 0;
-    startTime.current = 0;
   };
 
   // Set from library
@@ -316,6 +314,27 @@ export default function App() {
                 ))}
              </div>
           </div>
+
+          <div className="pt-8 flex flex-col gap-3 mt-auto">
+            <button 
+              onClick={() => setIsPlaying(!isPlaying)}
+              className={`w-full py-5 rounded-xl font-black text-sm tracking-[0.2em] transition-all active:scale-[0.98] shadow-2xl flex items-center justify-center gap-3 ${
+                isPlaying 
+                  ? 'bg-red-500/10 text-red-500 border-2 border-red-500/50 hover:bg-red-500/20' 
+                  : 'bg-blue-600 text-white border-2 border-blue-500 hover:bg-blue-500 hover:shadow-blue-500/40'
+              }`}
+            >
+              {isPlaying ? <RotateCcw className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
+              {isPlaying ? "STOP JETTING" : "START JETTING"}
+            </button>
+            
+            <button 
+              onClick={handleReset}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-[10px] font-bold tracking-widest transition-all uppercase border border-slate-700"
+            >
+              Reset Trace
+            </button>
+          </div>
         </aside>
 
         {/* Simulation Viewport */}
@@ -390,20 +409,6 @@ export default function App() {
           <span className="text-slate-400 font-bold">TRACE_LEN: <span className="text-blue-400">{sampleProgress.toFixed(2)}mm</span></span>
         </div>
         <div className="flex items-center gap-6">
-          <div className="flex gap-2">
-              <button 
-                onClick={handleReset}
-                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[9px] font-bold tracking-widest transition-all uppercase"
-              >
-                  Reset
-              </button>
-              <button 
-                onClick={() => setIsPlaying(!isPlaying)}
-                className={`px-6 py-1 ${isPlaying ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white rounded text-[9px] font-bold tracking-widest transition-all uppercase`}
-              >
-                {isPlaying ? "STOP" : "START"}
-              </button>
-          </div>
           <span className="text-slate-300 tracking-tighter uppercase font-bold">AgCite-90072-V3</span>
         </div>
       </footer>
