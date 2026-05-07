@@ -91,13 +91,12 @@ export default function App() {
   // Constants for Physical/Visual Calibration
   const POOL_TIME = 850;
   const PRINT_SPEED_MM_S = 20;
-  const SAMPLE_LIMIT_MM = 100; // 10cm Physical limit
-  const PRINT_DURATION_MS = (SAMPLE_LIMIT_MM / PRINT_SPEED_MM_S) * 1000;
   
   // Spacing & Sprawl Calibration
+  // Calibrated for Sample 9 (Isolated dots) and Sample 13 (Continuous line)
   const VISUAL_TIME_SCALE = 0.05; 
-  const VISUAL_SPEED = 7.2;        // Calibrated for Sample 9 (1kHz) gaps
-  const VISUAL_PARTICLE_SCALE = 0.38; // Calibrated for Sample 13 line merging
+  const VISUAL_SPEED = 18.0;        
+  const VISUAL_PARTICLE_SCALE = 0.75; 
 
   // Simulation Loop
   useEffect(() => {
@@ -113,13 +112,6 @@ export default function App() {
       lastFrameTime = now;
       const elapsed = now - startTime.current;
 
-      // Completion Check (10cm Print Limit)
-      if (elapsed > POOL_TIME + PRINT_DURATION_MS) {
-        setIsPlaying(false);
-        setIsMoving(false);
-        return;
-      }
-
       const motionActive = elapsed > POOL_TIME;
       if (motionActive !== isMoving) setIsMoving(motionActive);
 
@@ -127,23 +119,24 @@ export default function App() {
       const moveAmount = motionActive ? (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE) : 0;
 
       if (motionActive) {
-        setSampleProgress(prev => Math.min(prev + (PRINT_SPEED_MM_S * deltaTime / 1000), SAMPLE_LIMIT_MM));
+        setSampleProgress(prev => prev + (PRINT_SPEED_MM_S * deltaTime / 1000));
       }
 
       const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
       
       setParticles(prev => {
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 125);
+        // Keep particles on screen but filter far out ones
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 150);
         
         if (now - lastEmitTime.current >= emitInterval) {
           const instability = (params.frequency / 3500) * (params.voltage / 2.7);
-          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 4 : 0;
+          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 5 : 0;
           
           updated.push({
             id: Math.random(),
             x: 10,
             y: 50 + jitter,
-            size: predictedSize * VISUAL_PARTICLE_SCALE * 10,
+            size: predictedSize * VISUAL_PARTICLE_SCALE,
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -163,7 +156,7 @@ export default function App() {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, params, predictedSize, isMoving, PRINT_DURATION_MS]);
+  }, [isPlaying, params.frequency, params.voltage, predictedSize, isMoving]);
 
   // Reset function
   const handleReset = () => {
@@ -178,12 +171,12 @@ export default function App() {
   // Set from library
   const loadSample = (s: typeof SAMPLES[0]) => {
     handleReset();
-    setParams({
-      ...params,
+    setParams(prev => ({
+      ...prev,
       frequency: s.f,
       voltage: s.v,
       amplitude: s.a
-    });
+    }));
   };
 
   // Render Microscope View
@@ -331,8 +324,8 @@ export default function App() {
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">EHD Infrastructure</h2>
             <div className="bg-slate-950/50 rounded-lg p-5 space-y-4 border border-slate-800/50">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Stage Position</span>
-                <span className="text-xs font-mono font-bold text-slate-200">{sampleProgress.toFixed(1)}mm / 100</span>
+                <span className="text-xs text-slate-500">Total Deposition</span>
+                <span className="text-xs font-mono font-bold text-slate-200">{sampleProgress.toFixed(1)}mm</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-slate-500">LiteTouch Supply</span>
@@ -353,12 +346,11 @@ export default function App() {
                <RotateCcw className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => setIsPlaying(true)}
-              disabled={isPlaying}
-              className={`flex-1 py-4 ${isPlaying ? 'bg-blue-900/50 text-blue-500' : 'bg-blue-600 hover:bg-blue-500 text-white'} rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2`}
+              onClick={() => isPlaying ? handleReset() : setIsPlaying(true)}
+              className={`flex-1 py-4 ${isPlaying ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2`}
             >
-               {isPlaying ? <Activity className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-               {isPlaying ? "PRINTING SAMPLE..." : "START 10cm PRINT"}
+               {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+               {isPlaying ? "STOP PRINTING" : "START CONTINUOUS PRINT"}
             </button>
           </div>
         </aside>
