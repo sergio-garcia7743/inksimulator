@@ -47,47 +47,42 @@ const EXPERIMENTAL_DATA = [
 function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
-  // EHD Empirical Model Logic:
-  // 1. Electric Field Strength (E) is driven by Voltage (V) and Waveform Amplitude (A).
-  //    Higher E deforms the meniscus more aggressively, increasing volume.
-  const electricFieldStrength = (voltage * 0.7) + (amplitude / 100 * 0.3);
-  const vScale = (electricFieldStrength - 2.0) * 2400; 
+  // EHD Model calibrated for micro-scale dot separation:
+  // Baseline diameter target: ~5 microns (5000nm)
+  // Voltage (V) and Amplitude (A) determine the E-field strength.
   
-  // 2. Frequency (f) Regulation:
-  //    At high f, the meniscus recovery time (refill from LiteTouch syringe) 
-  //    becomes the bottleneck. If f is too high, the meniscus cannot reform 
-  //    fully, leading to volume divergence or ejection failure.
-  const meniscusRecoveryThreshold = 2800; // Hz
-  let recoveryDissipation = 0;
-  if (frequency > meniscusRecoveryThreshold) {
-    recoveryDissipation = Math.pow((frequency - meniscusRecoveryThreshold) / 100, 1.8);
+  const fieldFactor = (voltage / 2.79) * (1 + (amplitude / 150)); 
+  const intrinsicSize = 4.2 * fieldFactor; // Base diameter in microns
+  
+  // Frequency Refill Roll-off
+  const fThreshold = 2500;
+  let freqDamping = 0;
+  if (frequency > fThreshold) {
+    freqDamping = (frequency - fThreshold) * 0.0005;
   }
   
-  // 3. Spacing Interaction: 
-  //    Frequency determines pulsing rate against the 20mm/s supply.
-  const spacingEffect = Math.log2(frequency) * 40;
+  let predicted = intrinsicSize - freqDamping;
   
-  const baseSize = 900; // Minimum EHD threshold
-  let predicted = baseSize + vScale - recoveryDissipation - spacingEffect;
-  
-  return Math.min(Math.max(predicted, 400), 4500);
+  // Clamp to realistic micro-EHD results (typically 2um to 15um for AgCite)
+  return Math.min(Math.max(predicted, 2.0), 18.0);
 }
 
 // --- Components ---
 
 export default function App() {
   const [params, setParams] = useState<SimulationParams>({
-    voltage: 2.89,
+    voltage: 2.79,
     frequency: 1000,
-    amplitude: 40,
+    amplitude: 20,
     speed: 20
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMoving, setIsMoving] = useState(false); // New: Tracks when Thorlabs motion starts
   const [particles, setParticles] = useState<Particle[]>([]);
-  const [lineLength, setLineLength] = useState(0); // For substrate line visualization
   const microscopeCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastEmitTime = useRef<number>(0);
+  const startTime = useRef<number>(0);
   const requestRef = useRef<number | null>(null);
 
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
@@ -95,6 +90,7 @@ export default function App() {
   // Simulation Loop
   useEffect(() => {
     let lastFrameTime = performance.now();
+    
     const update = (now: number) => {
       if (!isPlaying) {
         lastFrameTime = now;
@@ -104,27 +100,35 @@ export default function App() {
       const deltaTime = now - lastFrameTime;
       lastFrameTime = now;
 
-      // 1. Move existing particles based on fixed speed (20 mm/s)
-      // Map 20 mm/s to a visual horizontal speed: say 10% of width per second
-      const visualSpeed = 35; // % per second - faster for better spacing visualization
-      const moveAmount = (visualSpeed * deltaTime) / 1000;
+      // Sequential Logic: 
+      // 0-850ms: Energized & Stationary (Pooling)
+      // >850ms: Thorlabs Motion Starts (Linear Sweep)
+      const elapsed = now - startTime.current;
+      const motionActive = elapsed > 850;
+      if (motionActive !== isMoving) setIsMoving(motionActive);
 
-      const emitInterval = 1000 / params.frequency;
+      // 1. Move existing particles
+      // Visual Scaling for kHz frequencies (Visual Time Dilation)
+      const VISUAL_TIME_SCALE = 0.04; 
+      const visualSpeed = 45; 
+      const moveAmount = motionActive ? (visualSpeed * deltaTime * VISUAL_TIME_SCALE) : 0;
+
+      const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
       const timeSinceLastEmit = now - lastEmitTime.current;
 
       setParticles(prev => {
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 105);
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 115);
 
-        // 2. Emission logic
         if (timeSinceLastEmit >= emitInterval) {
-          // Acoustic jitter at high frequencies (> 3kHz)
-          const jitter = params.frequency > 3000 ? (Math.random() - 0.5) * (params.frequency / 2000) : 0;
+          // Instability increases with both Voltage and Freq
+          const instability = (params.frequency / 3500) * (params.voltage / 2.5);
+          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 3 : 0;
           
           updated.push({
             id: Math.random(),
             x: 10,
             y: 50 + jitter,
-            size: predictedSize / 80,
+            size: predictedSize * 2.2, 
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -136,6 +140,7 @@ export default function App() {
     };
 
     if (isPlaying) {
+      startTime.current = performance.now();
       lastEmitTime.current = performance.now();
       requestRef.current = requestAnimationFrame(update);
     }
@@ -148,9 +153,10 @@ export default function App() {
   // Reset function
   const handleReset = () => {
     setIsPlaying(false);
+    setIsMoving(false);
     setParticles([]);
-    setLineLength(0);
     lastEmitTime.current = 0;
+    startTime.current = 0;
   };
 
   // Render Microscope View
@@ -162,38 +168,42 @@ export default function App() {
     ctx.fillStyle = '#020617';
     ctx.fillRect(0, 0, 300, 300);
     
+    // Grid
     ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1;
     for(let i = 0; i < 300; i += 20) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 300); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(300, i); ctx.stroke();
     }
 
+    // Centered visualization of a single drop
     const centerX = 150;
     const centerY = 150;
-    const radius = predictedSize / 30;
+    const radius = predictedSize * 5; // Zoomed in purely for visual diameter check
 
     const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
     gradient.addColorStop(0, '#f8fafc');
-    gradient.addColorStop(0.6, '#94a3b8');
+    gradient.addColorStop(0.6, '#60a5fa');
     gradient.addColorStop(1, '#1e293b');
 
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
-    ctx.strokeStyle = '#38bdf844';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#38bdf888';
+    ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.strokeStyle = '#ef4444';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(centerX - radius - 10, centerY);
-    ctx.lineTo(centerX + radius + 10, centerY);
+    ctx.moveTo(centerX - radius - 15, centerY);
+    ctx.lineTo(centerX + radius + 15, centerY);
     ctx.stroke();
     
     ctx.fillStyle = '#ef4444';
-    ctx.font = 'bold 10px ui-monospace, monospace';
-    ctx.fillText(`Ø ${predictedSize.toFixed(0)}µm`, centerX - 25, centerY - 15);
+    ctx.font = 'bold 12px ui-monospace, monospace';
+    ctx.fillText(`Ø ${predictedSize.toFixed(2)}µm`, centerX - 30, centerY - 20);
   }, [predictedSize]);
 
   return (
