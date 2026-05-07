@@ -53,15 +53,16 @@ function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
   // Calibrated AgCite 90072 EHD Empirical Model
-  const vFactor = Math.pow(voltage / 2.79, 5.0); 
-  const aFactor = 1 + (amplitude / 110);
+  // Higher sensitivity to Voltage jump (2.79 -> 2.89)
+  const vFactor = Math.pow(voltage / 2.79, 8.5); 
+  const aFactor = 1 + (amplitude / 65);
   
-  // Base diameter in microns
-  let diameter = 6.8 * vFactor * aFactor;
+  // Base diameter in microns (Calibrated to ~9.4um for Sample 9)
+  let diameter = 7.2 * vFactor * aFactor;
   
   // Frequency roll-off due to meniscus refill time
-  if (frequency > 2500) {
-    diameter -= (frequency - 2500) * 0.0015;
+  if (frequency > 2400) {
+    diameter -= (frequency - 2400) * 0.002;
   }
 
   return Math.min(Math.max(diameter, 1.5), 25.0);
@@ -93,10 +94,9 @@ export default function App() {
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  // Calibrated for Sample 9 (Isolated dots) and Sample 13 (Continuous line)
-  const VISUAL_TIME_SCALE = 0.05; 
-  const VISUAL_SPEED = 18.0;        
-  const VISUAL_PARTICLE_SCALE = 0.75; 
+  const VISUAL_TIME_SCALE = 0.06; 
+  const VISUAL_SPEED = 28.0;        // Calibrated for Sample 9 (1kHz) gaps
+  const VISUAL_PARTICLE_SCALE = 1.0; // 1:1 Visual to Micron ratio
 
   // Simulation Loop
   useEffect(() => {
@@ -130,13 +130,13 @@ export default function App() {
         
         if (now - lastEmitTime.current >= emitInterval) {
           const instability = (params.frequency / 3500) * (params.voltage / 2.7);
-          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 5 : 0;
+          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 4 : 0;
           
           updated.push({
             id: Math.random(),
             x: 10,
             y: 50 + jitter,
-            size: predictedSize * VISUAL_PARTICLE_SCALE,
+            size: predictedSize * VISUAL_PARTICLE_SCALE * 0.95, // Refined for overlap calibration
             opacity: 1
           });
           lastEmitTime.current = now;
