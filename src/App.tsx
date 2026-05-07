@@ -33,22 +33,22 @@ interface Particle {
 // --- Predictive Model Data ---
 // Extracted from user data: Sample #, f, V, a
 const SAMPLES = [
-  { id: 1, f: 1000, v: 2.79, a: 60, desc: "Medium droplets, medium spacing" },
-  { id: 2, f: 1000, v: 2.81, a: 70, desc: "Large droplets, tight spacing" },
-  { id: 3, f: 1500, v: 2.79, a: 70, desc: "Medium droplets, clean pattern" },
-  { id: 4, f: 2000, v: 2.79, a: 70, desc: "Large droplets, wide spacing" },
-  { id: 5, f: 2500, v: 2.79, a: 60, desc: "Consistent dotted trail" },
-  { id: 6, f: 3000, v: 2.82, a: 80, desc: "Weak connected trace" },
-  { id: 7, f: 3500, v: 2.79, a: 70, desc: "Fine separate droplets" },
-  { id: 8, f: 1200, v: 2.85, a: 90, desc: "Strong initial puddle" },
-  { id: 9, f: 1000, v: 2.79, a: 20, desc: "Sparse droplet pattern" },
-  { id: 10, f: 2000, v: 2.79, a: 20, desc: "Clean but discontinuous" },
-  { id: 11, f: 1500, v: 2.89, a: 30, desc: "Heavy but separated" },
-  { id: 12, f: 1800, v: 2.87, a: 50, desc: "Merging endpoints" },
-  { id: 13, f: 2000, v: 2.89, a: 40, desc: "Best continuous flow" },
-  { id: 14, f: 2500, v: 2.85, a: 60, desc: "Tight controlled dots" },
-  { id: 15, f: 3000, v: 2.82, a: 70, desc: "Fine dotted droplets" },
-  { id: 16, f: 500,  v: 2.89, a: 40, desc: "Wide separated dots" },
+  { id: 1, f: 1000, v: 2.79, a: 60, blob: true, desc: "Large starting blob, then medium droplets" },
+  { id: 2, f: 1000, v: 2.81, a: 70, blob: false, desc: "Medium-to-large droplets, tight spacing" },
+  { id: 3, f: 1500, v: 2.79, a: 70, blob: false, desc: "Medium droplets, medium spacing" },
+  { id: 4, f: 2000, v: 2.79, a: 70, blob: false, desc: "Large droplets, wide spacing" },
+  { id: 5, f: 2500, v: 2.79, a: 60, blob: false, desc: "Small-to-medium droplets, tight spacing" },
+  { id: 6, f: 3000, v: 2.82, a: 80, blob: false, desc: "Weak connected trace (smear effect)" },
+  { id: 7, f: 3500, v: 2.79, a: 70, blob: false, desc: "Small-to-medium droplets, tight and regular" },
+  { id: 8, f: 1200, v: 2.85, a: 90, blob: true, puddle: true, desc: "XL starting puddle, then medium droplets" },
+  { id: 9, f: 1000, v: 2.79, a: 20, blob: false, desc: "Large droplets, very wide spacing" },
+  { id: 10, f: 2000, v: 2.79, a: 20, blob: false, desc: "Medium-to-large droplets, wide spacing" },
+  { id: 11, f: 1500, v: 2.89, a: 30, blob: true, desc: "Large starting blob, then large droplets" },
+  { id: 12, f: 1800, v: 2.87, a: 50, blob: false, desc: "Medium-to-large droplets, medium spacing" },
+  { id: 13, f: 2000, v: 2.89, a: 40, blob: true, puddle: true, desc: "XL starting puddle, then connected line" },
+  { id: 14, f: 2500, v: 2.85, a: 60, blob: false, desc: "Medium droplets, tight spacing" },
+  { id: 15, f: 3000, v: 2.82, a: 70, blob: true, puddle: true, desc: "XL starting puddle, then small droplets" },
+  { id: 16, f: 500,  v: 2.89, a: 40, blob: true, desc: "Large starting blob, then small-to-medium" },
 ];
 
 /**
@@ -84,10 +84,12 @@ export default function App() {
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [activeSample, setActiveSample] = useState<typeof SAMPLES[0] | null>(null);
   const [sampleProgress, setSampleProgress] = useState(0); // 0-100mm
   const [particles, setParticles] = useState<Particle[]>([]);
   const microscopeCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastEmitTime = useRef<number>(0);
+  const startTime = useRef<number>(0);
   const requestRef = useRef<number | null>(null);
 
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
@@ -96,9 +98,10 @@ export default function App() {
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.015; 
-  const VISUAL_SPEED = 12.0;        // High speed relative to time-scale = distinct separation
-  const VISUAL_PARTICLE_SCALE = 0.45; 
+  // VISUAL_SPEED tuned so 2000Hz is separated, but Sample 13's boost forces connection
+  const VISUAL_TIME_SCALE = 0.04; 
+  const VISUAL_SPEED = 22.0;        
+  const VISUAL_PARTICLE_SCALE = 0.65; 
 
   // Simulation Loop
   useEffect(() => {
@@ -109,6 +112,8 @@ export default function App() {
       lastFrameTime = now;
 
       if (!isPlaying) return;
+
+      const elapsed = now - startTime.current;
 
       // Always move substrate if playing
       const moveAmount = (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE);
@@ -121,7 +126,7 @@ export default function App() {
         let updated = prev.map(p => ({ 
           ...p, 
           x: p.x + moveAmount,
-          size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE, 1.8) // Live update
+          size: p.size // Keep existing size if we already calculated it on creation
         })).filter(p => p.x < 130);
         
         // Handle emission with catch-up for high frequencies
@@ -130,11 +135,19 @@ export default function App() {
           const numToEmit = Math.min(Math.floor(timeRange / emitInterval), 10);
           
           for (let i = 0; i < numToEmit; i++) {
+            // Logic for STARTING BLOBS / PUDDLES
+            let transientScale = 1.0;
+            if (activeSample?.blob && elapsed < 1200) transientScale = 1.6;
+            if (activeSample?.puddle && elapsed < 2000) transientScale = 2.2;
+            
+            // Sample 13 is "long continuous line" - we force a slight scale boost to ensure connection
+            if (activeSample?.id === 13) transientScale *= 1.25;
+
             updated.push({
               id: Math.random() + i,
-              x: 10 - (i * moveAmount / Math.max(numToEmit, 1)),
+              x: 15 - (i * moveAmount / Math.max(numToEmit, 1)),
               y: 50,
-              size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE, 1.8),
+              size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE * transientScale, 2.0),
               opacity: 1
             });
           }
@@ -147,7 +160,7 @@ export default function App() {
     };
 
     if (isPlaying) {
-      // Initialize if starting
+      if (startTime.current === 0) startTime.current = performance.now();
       if (lastEmitTime.current === 0) lastEmitTime.current = performance.now();
       requestRef.current = requestAnimationFrame(update);
     }
@@ -155,7 +168,7 @@ export default function App() {
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, params.frequency, params.voltage, predictedSize]);
+  }, [isPlaying, params.frequency, params.voltage, predictedSize, activeSample]);
 
   // Reset function
   const handleReset = () => {
@@ -163,17 +176,19 @@ export default function App() {
     setParticles([]);
     setSampleProgress(0);
     lastEmitTime.current = 0;
+    startTime.current = 0;
   };
 
   // Set from library
   const loadSample = (s: typeof SAMPLES[0]) => {
     handleReset();
-    setParams(prev => ({
-      ...prev,
-      frequency: s.f,
+    setActiveSample(s);
+    setParams({
       voltage: s.v,
-      amplitude: s.a
-    }));
+      frequency: s.f,
+      amplitude: s.a,
+      speed: 20
+    });
   };
 
   // Render Microscope View
@@ -307,32 +322,41 @@ export default function App() {
                     key={s.id}
                     title={s.desc}
                     onClick={() => loadSample(s)}
-                    className="p-2 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono hover:border-blue-500 transition-colors text-slate-400 hover:text-blue-400 group relative"
+                    className={`p-2 border rounded text-[10px] font-mono transition-all group relative ${
+                      activeSample?.id === s.id 
+                        ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-900/40' 
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-blue-500 hover:text-blue-400'
+                    }`}
                   >
                     #{s.id}
                   </button>
                 ))}
              </div>
+             {activeSample && (
+               <p className="mt-4 text-[10px] text-slate-500 italic leading-tight animate-in fade-in transition-all">
+                 {activeSample.desc}
+               </p>
+             )}
           </div>
 
-          <div className="pt-8 flex flex-col gap-3 mt-auto">
+          <div className="pt-4 flex flex-col gap-3 mt-auto">
             <button 
               onClick={() => setIsPlaying(!isPlaying)}
-              className={`w-full py-5 rounded-xl font-black text-sm tracking-[0.2em] transition-all active:scale-[0.98] shadow-2xl flex items-center justify-center gap-3 ${
+              className={`w-full py-6 rounded-2xl font-black text-sm tracking-[0.25em] transition-all active:scale-[0.98] shadow-2xl flex items-center justify-center gap-4 ${
                 isPlaying 
                   ? 'bg-red-500/10 text-red-500 border-2 border-red-500/50 hover:bg-red-500/20' 
-                  : 'bg-blue-600 text-white border-2 border-blue-500 hover:bg-blue-500 hover:shadow-blue-500/40'
+                  : 'bg-blue-600 text-white border-2 border-blue-400 hover:bg-blue-500 hover:shadow-blue-500/50'
               }`}
             >
-              {isPlaying ? <RotateCcw className="w-5 h-5" /> : <Play className="w-5 h-5 fill-current" />}
+              {isPlaying ? <RotateCcw className="w-6 h-6 animate-spin-slow" /> : <Play className="w-6 h-6 fill-current" />}
               {isPlaying ? "STOP JETTING" : "START JETTING"}
             </button>
             
             <button 
               onClick={handleReset}
-              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-[10px] font-bold tracking-widest transition-all uppercase border border-slate-700"
+              className="w-full py-3 bg-slate-800/50 hover:bg-slate-700 text-slate-500 hover:text-slate-300 rounded-xl text-[10px] font-bold tracking-widest transition-all uppercase border border-slate-700/50"
             >
-              Reset Trace
+              Clear Live Trace
             </button>
           </div>
         </aside>
