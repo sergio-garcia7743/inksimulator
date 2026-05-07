@@ -241,9 +241,9 @@ export default function App() {
   }, [predictedSize]);
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+    <div className="flex flex-col min-h-screen lg:h-screen bg-slate-950 text-slate-100 font-sans overflow-x-hidden">
       {/* Header */}
-      <header className="h-16 shrink-0 border-b border-slate-800 bg-slate-900/50 px-6 flex items-center justify-between">
+      <header className="h-16 shrink-0 border-b border-slate-800 bg-slate-900/50 px-4 lg:px-6 flex items-center justify-between sticky top-0 z-50 backdrop-blur-md">
         <div className="flex items-center space-x-4">
           <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center shadow-lg shadow-blue-900/20">
             <Zap className="w-5 h-5 text-white" />
@@ -261,10 +261,52 @@ export default function App() {
       </header>
 
       {/* Main Interface */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         
+        {/* Simulation Viewport (Prioritized on Mobile) */}
+        <section className="h-[45vh] lg:h-auto lg:flex-1 shrink-0 bg-slate-950 relative flex flex-col items-center justify-center overflow-hidden border-b lg:border-b-0 border-slate-800 order-1 lg:order-2">
+          {/* Simulation Grid Overlay (Substrate) */}
+          <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+          
+          {/* Top-Down Particles Rendering */}
+          <div className="absolute inset-0 z-10">
+            {particles.map(p => (
+              <motion.div
+                key={p.id}
+                className="absolute bg-blue-400 rounded-full"
+                style={{ 
+                  left: `${p.x}%`,
+                  top: `${p.y}%`,
+                  width: p.size, 
+                  height: p.size,
+                  transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 0 10px rgba(96, 165, 250, 0.4)',
+                  filter: 'blur(0.2px)'
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Nozzle Header (Top POV) */}
+          <div className="absolute left-[10%] top-1/2 -translate-y-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
+            <div className="w-12 h-12 lg:w-16 lg:h-16 rounded-full border-4 border-slate-700 bg-slate-900 flex items-center justify-center shadow-2xl ring-8 ring-blue-500/10">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+            </div>
+          </div>
+          
+          {/* Mobile Overlay Stats */}
+          <div className="lg:hidden absolute bottom-4 left-4 right-4 flex justify-between items-center pointer-events-none">
+             <div className="bg-slate-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-800 text-[10px] font-mono">
+                <span className="text-slate-500">DIAMETER:</span> <span className="text-blue-400 font-bold">{predictedSize.toFixed(1)}µm</span>
+             </div>
+             <div className="bg-slate-900/80 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-800 text-[10px] font-mono">
+                <span className="text-slate-500">TRACE:</span> <span className="text-blue-400 font-bold">{sampleProgress.toFixed(1)}mm</span>
+             </div>
+          </div>
+        </section>
+
         {/* Left Controls Panel */}
-        <aside className="w-80 shrink-0 bg-slate-900 border-r border-slate-800 p-6 flex flex-col space-y-8 overflow-y-auto">
+        <aside className="w-full lg:w-80 shrink-0 bg-slate-900 border-r border-slate-800 p-6 flex flex-col space-y-8 lg:overflow-y-auto order-2 lg:order-1">
           <div>
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">Primary Parameters</h2>
             
@@ -377,40 +419,8 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Simulation Viewport */}
-        <section className="flex-1 bg-slate-950 relative flex flex-col items-center justify-center overflow-hidden">
-          {/* Simulation Grid Overlay (Substrate) */}
-          <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-          
-          {/* Top-Down Particles Rendering */}
-          <div className="absolute inset-0 z-10">
-            {particles.map(p => (
-              <motion.div
-                key={p.id}
-                className="absolute bg-blue-400 rounded-full"
-                style={{ 
-                  left: `${p.x}%`,
-                  top: `${p.y}%`,
-                  width: p.size, 
-                  height: p.size,
-                  transform: 'translate(-50%, -50%)',
-                  boxShadow: '0 0 10px rgba(96, 165, 250, 0.4)',
-                  filter: 'blur(0.2px)'
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Nozzle Header (Top POV) */}
-          <div className="absolute left-[10%] top-1/2 -translate-y-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
-            <div className="w-16 h-16 rounded-full border-4 border-slate-700 bg-slate-900 flex items-center justify-center shadow-2xl ring-8 ring-blue-500/10">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-            </div>
-          </div>
-        </section>
-
         {/* Right Analytics Panel */}
-        <aside className="w-80 shrink-0 bg-slate-900 border-l border-slate-800 p-6 space-y-8 overflow-y-auto">
+        <aside className="w-full lg:w-80 shrink-0 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-6 space-y-8 lg:overflow-y-auto order-3">
           <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">EHD Analytics</h2>
           
           <div className="space-y-10">
@@ -443,10 +453,10 @@ export default function App() {
       </main>
 
       {/* Footer Status Bar */}
-      <footer className="h-10 shrink-0 bg-slate-900 border-t border-slate-800 px-6 flex items-center justify-between text-[10px] font-mono text-slate-500 tracking-wider">
-        <div className="flex space-x-10">
+      <footer className="h-auto lg:h-10 shrink-0 bg-slate-900 border-t border-slate-800 px-6 py-3 lg:py-0 flex flex-col lg:flex-row items-center justify-between gap-2 text-[10px] font-mono text-slate-500 tracking-wider">
+        <div className="flex space-x-6 lg:space-x-10">
           <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> SYSTEM READY</span>
-          <span className="text-slate-400 font-bold">TRACE_LEN: <span className="text-blue-400">{sampleProgress.toFixed(2)}mm</span></span>
+          <span className="text-slate-400 font-bold hidden lg:inline">TRACE_LEN: <span className="text-blue-400">{sampleProgress.toFixed(2)}mm</span></span>
         </div>
         <div className="flex items-center gap-6">
           <span className="text-slate-300 tracking-tighter uppercase font-bold">AgCite-90072-V3</span>
