@@ -84,64 +84,60 @@ export default function App() {
   });
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMoving, setIsMoving] = useState(false); // New: Tracks when Thorlabs motion starts
   const [sampleProgress, setSampleProgress] = useState(0); // 0-100mm
   const [particles, setParticles] = useState<Particle[]>([]);
   const microscopeCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastEmitTime = useRef<number>(0);
-  const startTime = useRef<number>(0);
   const requestRef = useRef<number | null>(null);
 
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
 
   // Constants for Physical/Visual Calibration
-  const POOL_TIME = 250; // Nearly immediate motion
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.15; 
-  const VISUAL_SPEED = 48.0;        // High speed for extreme separation
-  const VISUAL_PARTICLE_SCALE = 0.45; 
+  const VISUAL_TIME_SCALE = 0.4; 
+  const VISUAL_SPEED = 0.35;        // Balanced speed for clear separation and fast feel
+  const VISUAL_PARTICLE_SCALE = 0.4; 
 
   // Simulation Loop
   useEffect(() => {
     let lastFrameTime = performance.now();
     
     const update = (now: number) => {
-      if (!isPlaying) {
-        lastFrameTime = now;
-        return;
-      }
-
       const deltaTime = now - lastFrameTime;
       lastFrameTime = now;
-      const elapsed = now - startTime.current;
 
-      const motionActive = elapsed > POOL_TIME;
-      if (motionActive !== isMoving) setIsMoving(motionActive);
+      if (!isPlaying) return;
 
-      // Move existing substrate smoothly and fast
-      const moveAmount = motionActive ? (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE) : 0;
-
-      if (motionActive) {
-        setSampleProgress(prev => prev + (PRINT_SPEED_MM_S * deltaTime / 1000));
-      }
+      // Always move substrate if playing
+      const moveAmount = (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE);
+      setSampleProgress(prev => prev + (PRINT_SPEED_MM_S * deltaTime / 1000));
 
       const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
       
       setParticles(prev => {
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 130);
+        // Update both position AND size for 'live' slider feedback
+        let updated = prev.map(p => ({ 
+          ...p, 
+          x: p.x + moveAmount,
+          size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE, 1.8) // Live update
+        })).filter(p => p.x < 130);
         
-        if (now - lastEmitTime.current >= emitInterval) {
-          const puddleSize = elapsed < (POOL_TIME + 200) ? 2.2 : 1.0;
-
-          updated.push({
-            id: Math.random(),
-            x: 10,
-            y: 50,
-            size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE * puddleSize, 1.8),
-            opacity: 1
-          });
+        // Handle emission with catch-up for high frequencies
+        let timeRange = now - lastEmitTime.current;
+        if (timeRange >= emitInterval) {
+          const numToEmit = Math.min(Math.floor(timeRange / emitInterval), 10);
+          
+          for (let i = 0; i < numToEmit; i++) {
+            updated.push({
+              id: Math.random() + i,
+              x: 10 - (i * moveAmount / Math.max(numToEmit, 1)),
+              y: 50,
+              size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE, 1.8),
+              opacity: 1
+            });
+          }
           lastEmitTime.current = now;
         }
         return updated;
@@ -151,15 +147,15 @@ export default function App() {
     };
 
     if (isPlaying) {
-      startTime.current = performance.now();
-      lastEmitTime.current = performance.now();
+      // Initialize if starting
+      if (lastEmitTime.current === 0) lastEmitTime.current = performance.now();
       requestRef.current = requestAnimationFrame(update);
     }
 
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [isPlaying, params.frequency, params.voltage, predictedSize, isMoving]);
+  }, [isPlaying, params.frequency, params.voltage, predictedSize]);
 
   // Reset function
   const handleReset = () => {
@@ -238,17 +234,14 @@ export default function App() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight">
-            AgCite 90072 <span className="text-slate-400 font-normal">EHD Ejection Lab v3.0.1</span>
+            EHD Printing <span className="text-slate-400 font-normal">Simulator</span>
           </h1>
         </div>
         <div className="flex items-center space-x-6 text-sm font-medium">
           <div className="flex items-center space-x-2 bg-slate-800/50 px-3 py-1.5 rounded-full border border-slate-700/50">
             <span className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span>
-            <span className="text-slate-300 text-xs tracking-widest">{isPlaying ? 'FIELD ENERGIZED' : 'FIELD DISARMED'}</span>
+            <span className="text-slate-300 text-[10px] tracking-widest font-bold uppercase">{isPlaying ? 'JETTING' : 'IDLE'}</span>
           </div>
-          <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-md border border-slate-700 transition-colors text-xs font-bold text-slate-300 tracking-wide uppercase">
-            Export Data
-          </button>
         </div>
       </header>
 
@@ -323,35 +316,6 @@ export default function App() {
                 ))}
              </div>
           </div>
-
-          <div className="flex-1 bg-slate-950/30 rounded-lg p-5 border border-slate-800/50">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Trace Length</span>
-                <span className="text-xs font-mono font-bold text-blue-400">{sampleProgress.toFixed(1)}mm</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Field State</span>
-                <span className={`text-xs font-mono font-bold ${isPlaying ? 'text-emerald-500' : 'text-slate-600'}`}>{isPlaying ? 'EMITTING' : 'IDLE'}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button 
-              onClick={handleReset}
-              className="px-4 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-bold text-xs tracking-widest transition-all active:scale-[0.98] border border-slate-700"
-            >
-               <RotateCcw className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => isPlaying ? handleReset() : setIsPlaying(true)}
-              className={`flex-1 py-4 ${isPlaying ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2`}
-            >
-               {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-               {isPlaying ? "STOP" : "START"}
-            </button>
-          </div>
         </aside>
 
         {/* Simulation Viewport */}
@@ -403,26 +367,18 @@ export default function App() {
             </div>
 
             <div className="h-[1px] bg-slate-800" />
-
-            {/* Insights Module - Main Focus Now */}
+            
+            {/* Microscopic Visualization */}
             <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">EHD Predictive Insights</h3>
-              <div className="p-6 border-l-4 border-blue-600 bg-blue-600/5 rounded-r-2xl space-y-3 shadow-xl shadow-blue-900/10">
-                <p className="text-[13px] text-slate-200 leading-relaxed font-semibold italic">
-                  {params.frequency >= 2000 && params.voltage >= 2.85 
-                    ? '"SATURATION: Droplet overlap detected. Individual ejections are merging into a stable \'Linea Continua\' trace (High Resolution Line)."'
-                    : params.frequency > 4000 
-                    ? '"CRITICAL: Frequency exceeds nozzle refill capacity. Expect volume instability and ejection failure."'
-                    : params.voltage < 2.5
-                    ? '"UNDER-FIELD: Potential for erratic satellite drop formation or ejection interruption."'
-                    : '"STABLE: Optimal meniscus-field equilibrium. Isolated droplets with high geometric repeatability."'}
-                </p>
-                <p className="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800/50 pt-3">
-                  Prediction based on AgCite 90072 empirical data. Diameter accuracy ±25nm.
-                </p>
-              </div>
+               <div className="flex justify-between items-center">
+                 <p className="text-xs text-slate-400 font-medium tracking-tight">Ejection Profile</p>
+                 <span className="text-[9px] text-slate-600 font-mono tracking-widest">REALTIME_SIM</span>
+               </div>
+               <div className="relative aspect-square w-full rounded-2xl border-2 border-slate-800 overflow-hidden shadow-2xl">
+                  <canvas ref={microscopeCanvasRef} width={300} height={300} className="w-full h-full" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 to-transparent pointer-events-none" />
+               </div>
             </div>
-
           </div>
         </aside>
       </main>
@@ -431,8 +387,23 @@ export default function App() {
       <footer className="h-10 shrink-0 bg-slate-900 border-t border-slate-800 px-6 flex items-center justify-between text-[10px] font-mono text-slate-500 tracking-wider">
         <div className="flex space-x-10">
           <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> SYSTEM READY</span>
+          <span className="text-slate-400 font-bold">TRACE_LEN: <span className="text-blue-400">{sampleProgress.toFixed(2)}mm</span></span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
+          <div className="flex gap-2">
+              <button 
+                onClick={handleReset}
+                className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[9px] font-bold tracking-widest transition-all uppercase"
+              >
+                  Reset
+              </button>
+              <button 
+                onClick={() => setIsPlaying(!isPlaying)}
+                className={`px-6 py-1 ${isPlaying ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white rounded text-[9px] font-bold tracking-widest transition-all uppercase`}
+              >
+                {isPlaying ? "STOP" : "START"}
+              </button>
+          </div>
           <span className="text-slate-300 tracking-tighter uppercase font-bold">AgCite-90072-V3</span>
         </div>
       </footer>
