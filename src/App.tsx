@@ -67,14 +67,15 @@ function predictDropletSize(params: SimulationParams): number {
 
 export default function App() {
   const [params, setParams] = useState<SimulationParams>({
-    voltage: 2.79,
+    voltage: 2.89,
     frequency: 1000,
-    amplitude: 60,
+    amplitude: 40,
     speed: 20
   });
 
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [lineLength, setLineLength] = useState(0); // For substrate line visualization
   const microscopeCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastEmitTime = useRef<number>(0);
   const requestRef = useRef<number | null>(null);
@@ -84,33 +85,62 @@ export default function App() {
   // Simulation Loop
   useEffect(() => {
     const update = (time: number) => {
-      if (!isPlaying) return;
+      if (!isPlaying) {
+        lastEmitTime.current = 0;
+        return;
+      }
 
-      const delta = lastEmitTime.current ? time - lastEmitTime.current : 0;
+      if (!lastEmitTime.current) {
+        lastEmitTime.current = time;
+      }
+
+      const delta = time - lastEmitTime.current;
       const emitInterval = 1000 / params.frequency;
 
       if (delta >= emitInterval) {
-        setParticles(prev => [
-          ...prev.slice(-12),
-          {
-            id: Math.random(),
-            x: 0, 
-            y: 0,
-            size: predictedSize / 100, 
-            opacity: 1
-          }
-        ]);
+        setParticles(prev => {
+          // Update positions of existing particles (move to the right)
+          const moved = prev.map(p => ({ ...p, x: p.x + (params.speed / 10) })).filter(p => p.x < 100);
+          
+          // Add new particle at the nozzle position (X=10%)
+          return [
+            ...moved,
+            {
+              id: Math.random(),
+              x: 10, 
+              y: 50, // Center Y
+              size: predictedSize / 80, // Consistent top-down scale
+              opacity: 1
+            }
+          ];
+        });
         lastEmitTime.current = time;
+      } else {
+        // Just update existing positions between emissions
+        setParticles(prev => prev.map(p => ({ ...p, x: p.x + (params.speed / 200) })).filter(p => p.x < 100));
       }
 
       requestRef.current = requestAnimationFrame(update);
     };
 
-    requestRef.current = requestAnimationFrame(update);
+    if (isPlaying) {
+      requestRef.current = requestAnimationFrame(update);
+    } else {
+      lastEmitTime.current = 0;
+    }
+
     return () => {
         if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
   }, [params, isPlaying, predictedSize]);
+
+  // Reset function
+  const handleReset = () => {
+    setIsPlaying(false);
+    setParticles([]);
+    setLineLength(0);
+    lastEmitTime.current = 0;
+  };
 
   // Render Microscope View
   useEffect(() => {
@@ -253,23 +283,50 @@ export default function App() {
           </div>
 
           <button 
-            onClick={() => setIsPlaying(!isPlaying)}
+            onClick={() => isPlaying ? handleReset() : setIsPlaying(true)}
             className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
           >
              {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-             {isPlaying ? "STOP SIMULATION" : "INITIATE JETTING"}
+             {isPlaying ? "RESET DYNAMICS" : "INITIATE JETTING"}
           </button>
         </aside>
 
         {/* Simulation Viewport */}
         <section className="flex-1 bg-slate-950 relative flex flex-col items-center justify-center overflow-hidden">
-          {/* Simulation Grid Overlay */}
+          {/* Simulation Grid Overlay (Substrate) */}
           <div className="absolute inset-0 opacity-40 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
           
+          {/* Top-Down Particles Rendering */}
+          <div className="absolute inset-0 z-10">
+            {particles.map(p => (
+              <motion.div
+                key={p.id}
+                className="absolute bg-blue-400 rounded-full"
+                style={{ 
+                  left: `${p.x}%`,
+                  top: `${p.y}%`,
+                  width: p.size, 
+                  height: p.size,
+                  transform: 'translate(-50%, -50%)',
+                  boxShadow: '0 0 10px rgba(96, 165, 250, 0.4)',
+                  filter: 'blur(0.2px)'
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Nozzle Header (Top POV) */}
+          <div className="absolute left-[10%] top-1/2 -translate-y-1/2 -translate-x-1/2 z-20 flex flex-col items-center">
+            <div className="w-16 h-16 rounded-full border-4 border-slate-700 bg-slate-900 flex items-center justify-center shadow-2xl ring-8 ring-blue-500/10">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
+            </div>
+            <span className="text-[8px] font-mono text-slate-500 mt-3 uppercase tracking-widest whitespace-nowrap">Print Head [X-Y POV]</span>
+          </div>
+
           {/* Scale Overlay */}
           <div className="absolute bottom-8 right-8 flex flex-col items-end opacity-40">
             <div className="w-24 h-0.5 bg-slate-600" />
-            <span className="text-[10px] font-mono text-slate-500 mt-1 uppercase tracking-widest">300µm Reference</span>
+            <span className="text-[10px] font-mono text-slate-500 mt-1 uppercase tracking-widest">300µm Reference Scale</span>
           </div>
 
           {/* Telemetry Overlays */}
@@ -279,45 +336,9 @@ export default function App() {
               <p className="text-2xl font-mono text-blue-400 font-bold">2.18<span className="text-xs text-slate-600 ml-1">Re</span></p>
             </div>
             <div className="bg-slate-900/80 backdrop-blur-xl p-4 border border-slate-700 rounded-xl shadow-2xl">
-              <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Capillary Length</p>
-              <p className="text-2xl font-mono text-emerald-400 font-bold">14.2<span className="text-xs text-slate-600 ml-1">σ</span></p>
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Trace Accuracy</p>
+              <p className="text-2xl font-mono text-emerald-400 font-bold">99.4<span className="text-xs text-slate-600 ml-1">%</span></p>
             </div>
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center">
-            {/* Nozzle Assembly styling from theme */}
-            <div className="w-28 h-44 bg-gradient-to-b from-slate-700 to-slate-900 rounded-t-xl border-x border-slate-600 shadow-2xl relative">
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 w-4 h-4 bg-blue-500/20 blur-xl animate-pulse" />
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-full h-[1px] bg-slate-600/30" />
-            </div>
-            <div className="w-14 h-10 bg-slate-800 border-x border-b border-slate-600 rounded-b-sm shadow-sm" />
-            <div className="w-3 h-5 bg-slate-900" />
-            
-            {/* Real-time Fluid Render */}
-            <div className="absolute inset-0 top-56 pointer-events-none">
-              <AnimatePresence>
-                {particles.map(p => (
-                  <motion.div
-                    key={p.id}
-                    initial={{ y: -5, opacity: 0, scale: 0.2 }}
-                    animate={{ y: 400, opacity: [0, 1, 0.8, 0], scale: [0.5, 1, 1, 0.8] }}
-                    transition={{ duration: 0.6, ease: "linear" }}
-                    className="absolute left-1/2 -translate-x-1/2 bg-blue-400 rounded-full"
-                    style={{ 
-                      width: p.size * 1.5, 
-                      height: p.size * 1.5,
-                      boxShadow: '0 0 20px rgba(96, 165, 250, 0.6)',
-                      filter: 'blur(0.5px)'
-                    }}
-                  />
-                ))}
-              </AnimatePresence>
-            </div>
-          </div>
-
-          {/* Bottom Substrate */}
-          <div className="absolute bottom-0 w-full h-32 bg-slate-900 border-t border-slate-800 flex items-center justify-center">
-             <div className="w-full h-full opacity-5 pointer-events-none" style={{ backgroundImage: 'linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
           </div>
         </section>
 
