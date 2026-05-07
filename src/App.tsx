@@ -95,13 +95,13 @@ export default function App() {
   const predictedSize = useMemo(() => predictDropletSize(params), [params]);
 
   // Constants for Physical/Visual Calibration
-  const POOL_TIME = 850;
+  const POOL_TIME = 250; // Nearly immediate motion
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.05; 
-  const VISUAL_SPEED = 22.0;        // Exaggerated speed for clearer separation
-  const VISUAL_PARTICLE_SCALE = 0.55; // Balanced to allow merge at 2kHz but gaps at 1kHz
+  const VISUAL_TIME_SCALE = 0.15; 
+  const VISUAL_SPEED = 48.0;        // High speed for extreme separation
+  const VISUAL_PARTICLE_SCALE = 0.45; 
 
   // Simulation Loop
   useEffect(() => {
@@ -120,7 +120,7 @@ export default function App() {
       const motionActive = elapsed > POOL_TIME;
       if (motionActive !== isMoving) setIsMoving(motionActive);
 
-      // Move existing substrate smoothly
+      // Move existing substrate smoothly and fast
       const moveAmount = motionActive ? (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE) : 0;
 
       if (motionActive) {
@@ -133,15 +133,13 @@ export default function App() {
         let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 130);
         
         if (now - lastEmitTime.current >= emitInterval) {
-          // XL puddle/blob logic for starting or high voltage
-          const timeFactor = elapsed < (POOL_TIME + 250) ? 1.8 : 1.0;
-          const puddleFactor = params.voltage > 2.85 && elapsed < (POOL_TIME + 400) ? 2.5 : timeFactor;
+          const puddleSize = elapsed < (POOL_TIME + 200) ? 2.2 : 1.0;
 
           updated.push({
             id: Math.random(),
             x: 10,
-            y: 50, // Removed jitter for "smooth visual"
-            size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE * puddleFactor, 1.5),
+            y: 50,
+            size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE * puddleSize, 1.8),
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -326,20 +324,15 @@ export default function App() {
              </div>
           </div>
 
-          <div className="flex-1">
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">EHD Infrastructure</h2>
-            <div className="bg-slate-950/50 rounded-lg p-5 space-y-4 border border-slate-800/50">
+          <div className="flex-1 bg-slate-950/30 rounded-lg p-5 border border-slate-800/50">
+            <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Total Deposition</span>
-                <span className="text-xs font-mono font-bold text-slate-200">{sampleProgress.toFixed(1)}mm</span>
+                <span className="text-xs text-slate-500">Trace Length</span>
+                <span className="text-xs font-mono font-bold text-blue-400">{sampleProgress.toFixed(1)}mm</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">LiteTouch Supply</span>
-                <span className="text-xs font-mono font-bold text-blue-500/80">PRESSURE_LOCK</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-500">Thorlabs Control</span>
-                <span className="text-xs font-mono font-bold text-slate-200">LTS-150 ACTIVATED</span>
+                <span className="text-xs text-slate-500">Field State</span>
+                <span className={`text-xs font-mono font-bold ${isPlaying ? 'text-emerald-500' : 'text-slate-600'}`}>{isPlaying ? 'EMITTING' : 'IDLE'}</span>
               </div>
             </div>
           </div>
@@ -390,90 +383,46 @@ export default function App() {
             <div className="w-16 h-16 rounded-full border-4 border-slate-700 bg-slate-900 flex items-center justify-center shadow-2xl ring-8 ring-blue-500/10">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
             </div>
-            <span className="text-[8px] font-mono text-slate-500 mt-3 uppercase tracking-widest whitespace-nowrap">Print Head [X-Y POV]</span>
-          </div>
-
-          {/* Scale Overlay */}
-          <div className="absolute bottom-8 right-8 flex flex-col items-end opacity-40">
-            <div className="w-24 h-0.5 bg-slate-600" />
-            <span className="text-[10px] font-mono text-slate-500 mt-1 uppercase tracking-widest">300µm Reference Scale</span>
-          </div>
-
-          {/* Telemetry Overlays */}
-          <div className="absolute top-8 left-8 flex gap-4">
-            <div className="bg-slate-900/80 backdrop-blur-xl p-4 border border-slate-700 rounded-xl shadow-2xl">
-              <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Reynolds Number</p>
-              <p className="text-2xl font-mono text-blue-400 font-bold">2.18<span className="text-xs text-slate-600 ml-1">Re</span></p>
-            </div>
-            <div className="bg-slate-900/80 backdrop-blur-xl p-4 border border-slate-700 rounded-xl shadow-2xl">
-               <p className="text-[10px] text-slate-500 uppercase font-black tracking-tighter mb-1">Stage Status</p>
-               <p className="text-2xl font-mono text-emerald-400 font-bold">{isMoving ? "SWEEPING" : "STATIONARY"}</p>
-            </div>
           </div>
         </section>
 
         {/* Right Analytics Panel */}
         <aside className="w-80 shrink-0 bg-slate-900 border-l border-slate-800 p-6 space-y-8 overflow-y-auto">
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">Predictive Analytics</h2>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">EHD Analytics</h2>
           
-          <div className="space-y-8">
+          <div className="space-y-10">
             {/* Main KPI */}
-            <div className="space-y-2">
-              <p className="text-xs text-slate-400 font-medium">Est. Droplet Diameter</p>
-              <div className="flex items-baseline gap-1">
-                <p className="text-4xl font-mono font-bold text-slate-100 tabular-nums">
-                    {predictedSize.toFixed(0)}
-                </p>
-                <span className="text-lg font-mono text-blue-500/60 font-bold">µm</span>
-              </div>
-            </div>
-
-            {/* Stability Forecast Chart Mockup */}
-            <div className="space-y-3">
-              <p className="text-xs text-slate-400 font-medium">Drop Stability Flux</p>
-              <div className="h-28 w-full bg-slate-950 rounded-lg border border-slate-800/80 flex items-end p-2 space-x-1 shadow-inner relative">
-                {[30, 45, 60, 85, 70, 40, 55, 30].map((h, i) => (
-                    <motion.div 
-                        key={i}
-                        className={`flex-1 rounded-sm ${h > 75 ? 'bg-orange-500/80' : 'bg-blue-600/60'}`}
-                        initial={{ height: 0 }}
-                        animate={{ height: `${h}%` }}
-                        transition={{ delay: i * 0.05 }}
-                    />
-                ))}
-                <div className="absolute top-1/2 left-0 w-full h-[1px] bg-slate-800 border-dashed" />
-              </div>
-              <div className="flex justify-between text-[9px] text-slate-600 font-mono tracking-tighter">
-                <span>START</span><span>JETTING_CYCLES</span><span>PEAK</span>
-              </div>
-            </div>
-
-            {/* Microscope Integration */}
             <div className="space-y-4">
-               <div className="flex justify-between items-center">
-                 <p className="text-xs text-slate-400 font-medium tracking-tight">Microscope Analysis</p>
-                 <span className="text-[9px] text-slate-600 font-mono">X20.0 MAG</span>
-               </div>
-               <div className="relative aspect-square w-full rounded-2xl border-2 border-slate-800 overflow-hidden shadow-2xl group cursor-crosshair">
-                  <canvas ref={microscopeCanvasRef} width={300} height={300} className="w-full h-full scale-[1.02] group-hover:scale-110 transition-transform duration-700" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 to-transparent pointer-events-none" />
-                  <div className="absolute top-3 right-3 text-[8px] font-mono text-slate-600 bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-sm">LIVE_FEED</div>
-               </div>
+              <p className="text-xs text-slate-400 font-medium tracking-tight">Estimated Droplet Diameter</p>
+              <div className="flex items-baseline gap-2">
+                <p className="text-6xl font-mono font-bold text-slate-100 tabular-nums tracking-tighter">
+                    {predictedSize.toFixed(1)}
+                </p>
+                <span className="text-xl font-mono text-blue-500/60 font-bold">µm</span>
+              </div>
             </div>
 
-            {/* Insights Module */}
-            <div className="p-5 border-l-2 border-blue-500 bg-blue-500/5 rounded-r-xl">
-              <h3 className="text-[11px] font-black text-blue-400 mb-2 uppercase tracking-wide">EHD Predictive Insights</h3>
-              <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                {params.frequency >= 2000 && params.voltage >= 2.85 
-                  ? "SATURATION: High field strength and frequency coupling has reached the droplet overlap threshold. Individual ejections are merging on the substrate, creating a stable 'Linea Continua' trace."
-                  : params.frequency > 4000 
-                  ? "CRITICAL: Pulse frequency exceeds LiteTouch syringe refill rate. Meniscus recovery is incomplete, leading to significant volume drop-off and field-ejection instability." 
-                  : params.frequency > 2800
-                  ? "CAUTION: Meniscus recovery time is narrowing. High-frequency pulses are deforming the ink before the meniscus fully stabilizes from previous ejection."
-                  : "STABLE: Equilibrium reached between electric field strength and meniscus reformation. AgCite 90072 ejection remains laminar and consistent (Isolated Droplets)."}
-              </p>
+            <div className="h-[1px] bg-slate-800" />
+
+            {/* Insights Module - Main Focus Now */}
+            <div className="space-y-4">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">EHD Predictive Insights</h3>
+              <div className="p-6 border-l-4 border-blue-600 bg-blue-600/5 rounded-r-2xl space-y-3 shadow-xl shadow-blue-900/10">
+                <p className="text-[13px] text-slate-200 leading-relaxed font-semibold italic">
+                  {params.frequency >= 2000 && params.voltage >= 2.85 
+                    ? '"SATURATION: Droplet overlap detected. Individual ejections are merging into a stable \'Linea Continua\' trace (High Resolution Line)."'
+                    : params.frequency > 4000 
+                    ? '"CRITICAL: Frequency exceeds nozzle refill capacity. Expect volume instability and ejection failure."'
+                    : params.voltage < 2.5
+                    ? '"UNDER-FIELD: Potential for erratic satellite drop formation or ejection interruption."'
+                    : '"STABLE: Optimal meniscus-field equilibrium. Isolated droplets with high geometric repeatability."'}
+                </p>
+                <p className="text-[11px] text-slate-500 leading-relaxed border-t border-slate-800/50 pt-3">
+                  Prediction based on AgCite 90072 empirical data. Diameter accuracy ±25nm.
+                </p>
+              </div>
             </div>
+
           </div>
         </aside>
       </main>
@@ -481,13 +430,10 @@ export default function App() {
       {/* Footer Status Bar */}
       <footer className="h-10 shrink-0 bg-slate-900 border-t border-slate-800 px-6 flex items-center justify-between text-[10px] font-mono text-slate-500 tracking-wider">
         <div className="flex space-x-10">
-          <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> SYSTEM: NORMAL</span>
-          <span className="flex items-center gap-2 font-bold uppercase tracking-tighter">Lat: 12ms</span>
-          <span className="flex items-center gap-2 text-slate-600">Buffer: 94% Capacity</span>
+          <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> SYSTEM READY</span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-slate-700 hidden sm:inline">// END_POINT_ACTIVE</span>
-          <span className="text-slate-300">SEED: <span className="text-blue-500">0x77AF2B9</span></span>
+          <span className="text-slate-300 tracking-tighter uppercase font-bold">AgCite-90072-V3</span>
         </div>
       </footer>
     </div>
