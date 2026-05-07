@@ -33,39 +33,44 @@ interface Particle {
 // --- Predictive Model Data ---
 // Extracted from user data: Sample #, f, V, a
 const SAMPLES = [
-  { id: 1, f: 1000, v: 2.79, a: 60 },
-  { id: 2, f: 1000, v: 2.79, a: 70 },
-  { id: 3, f: 1500, v: 2.79, a: 70 },
-  { id: 4, f: 2000, v: 2.79, a: 70 },
-  { id: 9, f: 1000, v: 2.79, a: 20 },
-  { id: 10, f: 2000, v: 2.79, a: 20 },
-  { id: 13, f: 2000, v: 2.89, a: 40 },
-  { id: 16, f: 500,  v: 2.89, a: 40 },
-  { id: 17, f: 100,  v: 3.00, a: 40 },
+  { id: 1, f: 1000, v: 2.79, a: 60, desc: "Medium droplets, medium spacing" },
+  { id: 2, f: 1000, v: 2.81, a: 70, desc: "Large droplets, tight spacing" },
+  { id: 3, f: 1500, v: 2.79, a: 70, desc: "Medium droplets, clean pattern" },
+  { id: 4, f: 2000, v: 2.79, a: 70, desc: "Large droplets, wide spacing" },
+  { id: 5, f: 2500, v: 2.79, a: 60, desc: "Consistent dotted trail" },
+  { id: 6, f: 3000, v: 2.82, a: 80, desc: "Weak connected trace" },
+  { id: 7, f: 3500, v: 2.79, a: 70, desc: "Fine separate droplets" },
+  { id: 8, f: 1200, v: 2.85, a: 90, desc: "Strong initial puddle" },
+  { id: 9, f: 1000, v: 2.79, a: 20, desc: "Sparse droplet pattern" },
+  { id: 10, f: 2000, v: 2.79, a: 20, desc: "Clean but discontinuous" },
+  { id: 11, f: 1500, v: 2.89, a: 30, desc: "Heavy but separated" },
+  { id: 12, f: 1800, v: 2.87, a: 50, desc: "Merging endpoints" },
+  { id: 13, f: 2000, v: 2.89, a: 40, desc: "Best continuous flow" },
+  { id: 14, f: 2500, v: 2.85, a: 60, desc: "Tight controlled dots" },
+  { id: 15, f: 3000, v: 2.82, a: 70, desc: "Fine dotted droplets" },
+  { id: 16, f: 500,  v: 2.89, a: 40, desc: "Wide separated dots" },
 ];
 
 /**
- * Recalibrated EHD model for AgCite 90072.
- * Target: Sample 9 (V=2.79, A=20, f=1kHz) -> d ~ 6um (Spacing 20um, 2 dots fit in gap)
- * Target: Sample 13 (V=2.89, A=40, f=2kHz) -> d ~ 10.5um (Spacing 10um, Line forms)
+ * Predicts droplet diameter in microns.
+ * Calibrated against physical AgCite 90072 results.
  */
 function predictDropletSize(params: SimulationParams): number {
   const { voltage, frequency, amplitude } = params;
   
-  // Calibrated AgCite 90072 EHD Empirical Model
-  // Higher sensitivity to Voltage jump (2.79 -> 2.89)
-  const vFactor = Math.pow(voltage / 2.79, 8.5); 
-  const aFactor = 1 + (amplitude / 65);
+  // High sensitivity to Voltage (Power-law relationship)
+  const vFactor = Math.pow(voltage / 2.79, 7.5); 
+  const aFactor = 1 + (amplitude / 85);
   
-  // Base diameter in microns (Calibrated to ~9.4um for Sample 9)
-  let diameter = 7.2 * vFactor * aFactor;
+  // Base diameter target: ~10um for baseline
+  let diameter = 8.5 * vFactor * aFactor;
   
-  // Frequency roll-off due to meniscus refill time
-  if (frequency > 2400) {
-    diameter -= (frequency - 2400) * 0.002;
+  // Frequency roll-off (refill bottleneck)
+  if (frequency > 2200) {
+    diameter -= (frequency - 2200) * 0.0015;
   }
 
-  return Math.min(Math.max(diameter, 1.5), 25.0);
+  return Math.min(Math.max(diameter, 1.2), 28.0);
 }
 
 // --- Components ---
@@ -94,9 +99,9 @@ export default function App() {
   const PRINT_SPEED_MM_S = 20;
   
   // Spacing & Sprawl Calibration
-  const VISUAL_TIME_SCALE = 0.06; 
-  const VISUAL_SPEED = 28.0;        // Calibrated for Sample 9 (1kHz) gaps
-  const VISUAL_PARTICLE_SCALE = 1.0; // 1:1 Visual to Micron ratio
+  const VISUAL_TIME_SCALE = 0.04; 
+  const VISUAL_SPEED = 3.2;        // Units per ms (Relative to 100% width)
+  const VISUAL_PARTICLE_SCALE = 0.22; // Ratio of Micron to Screen %
 
   // Simulation Loop
   useEffect(() => {
@@ -115,7 +120,7 @@ export default function App() {
       const motionActive = elapsed > POOL_TIME;
       if (motionActive !== isMoving) setIsMoving(motionActive);
 
-      // Move existing substrate
+      // Move existing substrate smoothly
       const moveAmount = motionActive ? (VISUAL_SPEED * deltaTime * VISUAL_TIME_SCALE) : 0;
 
       if (motionActive) {
@@ -125,18 +130,18 @@ export default function App() {
       const emitInterval = 1000 / (params.frequency * VISUAL_TIME_SCALE);
       
       setParticles(prev => {
-        // Keep particles on screen but filter far out ones
-        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 150);
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 130);
         
         if (now - lastEmitTime.current >= emitInterval) {
-          const instability = (params.frequency / 3500) * (params.voltage / 2.7);
-          const jitter = params.frequency > 2200 ? (Math.random() - 0.5) * instability * 4 : 0;
-          
+          // XL puddle/blob logic for starting or high voltage
+          const timeFactor = elapsed < (POOL_TIME + 250) ? 1.8 : 1.0;
+          const puddleFactor = params.voltage > 2.85 && elapsed < (POOL_TIME + 400) ? 2.5 : timeFactor;
+
           updated.push({
             id: Math.random(),
             x: 10,
-            y: 50 + jitter,
-            size: predictedSize * VISUAL_PARTICLE_SCALE * 0.95, // Refined for overlap calibration
+            y: 50, // Removed jitter for "smooth visual"
+            size: Math.max(predictedSize * VISUAL_PARTICLE_SCALE * puddleFactor, 1.5),
             opacity: 1
           });
           lastEmitTime.current = now;
@@ -311,8 +316,9 @@ export default function App() {
                 {SAMPLES.map(s => (
                   <button 
                     key={s.id}
+                    title={s.desc}
                     onClick={() => loadSample(s)}
-                    className="p-2 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono hover:border-blue-500 transition-colors text-slate-400 hover:text-blue-400"
+                    className="p-2 bg-slate-950 border border-slate-800 rounded text-[10px] font-mono hover:border-blue-500 transition-colors text-slate-400 hover:text-blue-400 group relative"
                   >
                     #{s.id}
                   </button>
@@ -350,7 +356,7 @@ export default function App() {
               className={`flex-1 py-4 ${isPlaying ? 'bg-red-600 hover:bg-red-500' : 'bg-blue-600 hover:bg-blue-500'} text-white rounded font-bold text-sm tracking-widest shadow-lg shadow-blue-900/40 transition-all active:scale-[0.98] flex items-center justify-center gap-2`}
             >
                {isPlaying ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-               {isPlaying ? "STOP PRINTING" : "START CONTINUOUS PRINT"}
+               {isPlaying ? "STOP" : "START"}
             </button>
           </div>
         </aside>
