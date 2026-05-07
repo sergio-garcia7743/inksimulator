@@ -50,17 +50,23 @@ function predictDropletSize(params: SimulationParams): number {
   // Base model derived from observed trends:
   // - Higher Amplitude generally increases droplet volume
   // - Higher Voltage increases pressure and volume
-  // - Frequency affects jetting stability (simplified here)
+  // - Frequency affects jetting stability and volume (refill time bottleneck)
   
-  const vScale = (voltage - 2.7) * 2000; 
-  const aScale = (amplitude / 100) * 1500;
-  const fScale = Math.log10(frequency + 1) * 200;
+  const vScale = (voltage - 2.7) * 2200; 
+  const aScale = (amplitude / 100) * 1600;
+  
+  // High Frequency Dampening (Simulating Refill Time Bottleneck)
+  // Beyond ~3kHz, volume typically begins to roll off in piezoelectric DOD heads
+  const fThreshold = 3000;
+  let fEffect = 0;
+  if (frequency > fThreshold) {
+    fEffect = (frequency - fThreshold) * 0.15; // Sharper drop-off after threshold
+  }
   
   const baseSize = 800; // Minimum viable droplet
-  let predicted = baseSize + vScale + aScale - (fScale / 3);
+  let predicted = baseSize + vScale + aScale - fEffect - (Math.log10(frequency) * 50);
   
-  // Clamping to realistic ranges observed in data (1000 - 3500 microns)
-  return Math.min(Math.max(predicted, 800), 3500);
+  return Math.min(Math.max(predicted, 500), 4000);
 }
 
 // --- Components ---
@@ -84,55 +90,56 @@ export default function App() {
 
   // Simulation Loop
   useEffect(() => {
-    const update = (time: number) => {
+    let lastFrameTime = performance.now();
+    const update = (now: number) => {
       if (!isPlaying) {
-        lastEmitTime.current = 0;
+        lastFrameTime = now;
         return;
       }
 
-      if (!lastEmitTime.current) {
-        lastEmitTime.current = time;
-      }
+      const deltaTime = now - lastFrameTime;
+      lastFrameTime = now;
 
-      const delta = time - lastEmitTime.current;
+      // 1. Move existing particles based on fixed speed (20 mm/s)
+      // Map 20 mm/s to a visual horizontal speed: say 10% of width per second
+      const visualSpeed = 35; // % per second - faster for better spacing visualization
+      const moveAmount = (visualSpeed * deltaTime) / 1000;
+
       const emitInterval = 1000 / params.frequency;
+      const timeSinceLastEmit = now - lastEmitTime.current;
 
-      if (delta >= emitInterval) {
-        setParticles(prev => {
-          // Update positions of existing particles (move to the right)
-          const moved = prev.map(p => ({ ...p, x: p.x + (params.speed / 10) })).filter(p => p.x < 100);
+      setParticles(prev => {
+        let updated = prev.map(p => ({ ...p, x: p.x + moveAmount })).filter(p => p.x < 105);
+
+        // 2. Emission logic
+        if (timeSinceLastEmit >= emitInterval) {
+          // Acoustic jitter at high frequencies (> 3kHz)
+          const jitter = params.frequency > 3000 ? (Math.random() - 0.5) * (params.frequency / 2000) : 0;
           
-          // Add new particle at the nozzle position (X=10%)
-          return [
-            ...moved,
-            {
-              id: Math.random(),
-              x: 10, 
-              y: 50, // Center Y
-              size: predictedSize / 80, // Consistent top-down scale
-              opacity: 1
-            }
-          ];
-        });
-        lastEmitTime.current = time;
-      } else {
-        // Just update existing positions between emissions
-        setParticles(prev => prev.map(p => ({ ...p, x: p.x + (params.speed / 200) })).filter(p => p.x < 100));
-      }
+          updated.push({
+            id: Math.random(),
+            x: 10,
+            y: 50 + jitter,
+            size: predictedSize / 80,
+            opacity: 1
+          });
+          lastEmitTime.current = now;
+        }
+        return updated;
+      });
 
       requestRef.current = requestAnimationFrame(update);
     };
 
     if (isPlaying) {
+      lastEmitTime.current = performance.now();
       requestRef.current = requestAnimationFrame(update);
-    } else {
-      lastEmitTime.current = 0;
     }
 
     return () => {
         if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [params, isPlaying, predictedSize]);
+  }, [params.frequency, isPlaying, predictedSize]);
 
   // Reset function
   const handleReset = () => {
@@ -395,9 +402,11 @@ export default function App() {
             <div className="p-5 border-l-2 border-blue-500 bg-blue-500/5 rounded-r-xl">
               <h3 className="text-[11px] font-black text-blue-400 mb-2 uppercase tracking-wide">Model Insights</h3>
               <p className="text-[11px] text-slate-400 leading-relaxed font-medium">
-                {predictedSize > 2500 
-                  ? "Current voltage favors high-deposition output. Potential risk of puddle formation on substrate." 
-                  : "Jetting stability remains high. Laminar flow profile maintained throughout frequency spectrum."}
+                {params.frequency > 4000 
+                  ? "CRITICAL: Frequency exceeds nozzle refill threshold. Meniscus damping is insufficient, leading to significant volume drop-off and potential satellite formation." 
+                  : params.frequency > 2500
+                  ? "CAUTION: Harmonic resonance detected. Droplet volume starting to diverge from linear scaling due to fluid chamber refill constraints."
+                  : "STABLE: Flow dynamics are laminar. Droplet pitch remains consistent with the 20mm/s print velocity."}
               </p>
             </div>
           </div>
