@@ -137,10 +137,14 @@ export default function App() {
           const numToEmit = Math.min(Math.floor(timeRange / emitInterval), 10);
           
           for (let i = 0; i < numToEmit; i++) {
-            // Logic for STARTING BLOBS / PUDDLES
+            // Logic for STARTING BLOBS / PUDDLES - Smoothed with decay
             let transientScale = 1.0;
-            if (activeSample?.blob && elapsed < 1200) transientScale = 1.8;
-            if (activeSample?.puddle && elapsed < 2000) transientScale = 2.6;
+            // Exponential decay simulates the stabilization of the meniscus and fluid accumulation
+            if (activeSample?.puddle) {
+              transientScale = 1.0 + (1.6 * Math.exp(-elapsed / 800)); // Smoothly settle from 2.6x to 1.0x
+            } else if (activeSample?.blob) {
+              transientScale = 1.0 + (0.8 * Math.exp(-elapsed / 400)); // Smoothly settle from 1.8x to 1.0x
+            }
             
             // Continuous samples get a significant size boost to ensure overlap at lower speed
             if (activeSample?.continuous) transientScale *= 1.6;
@@ -249,7 +253,7 @@ export default function App() {
             <Zap className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-semibold tracking-tight">
-            AgCite 90072 <span className="text-slate-400 font-normal">Nanoparticle Print Simulator</span>
+            EHD Printing <span className="text-slate-400 font-normal">Simulator</span>
           </h1>
         </div>
         <div className="flex items-center space-x-6 text-sm font-medium">
